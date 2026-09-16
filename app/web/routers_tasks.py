@@ -58,6 +58,8 @@ def _validate_dir(raw: str) -> Path:
     lowered = resolved.lower()
     if any(lowered == bad or lowered.startswith(bad + "/") or lowered.startswith(bad + "\\") for bad in FORBIDDEN_DIRS):
         raise errors.BadRequestError("该目录为系统目录，请更换")
+    if env.AUTHORIZED_PATHS and not security.is_authorized_dir(path):
+        raise errors.BadRequestError("该目录未获得授权，请点击「选择目录」重新授权")
     return path
 
 

@@ -1142,6 +1142,7 @@ function bindEvents() {
   $('#btn-history-clear').addEventListener('click', clearHistory);
 
   $('#btn-save-settings').addEventListener('click', saveSettings);
+  $('#btn-choose-dir').addEventListener('click', chooseDownloadDir);
 
   $('#btn-player-close').addEventListener('click', closePlayer);
   $('#player-audio').addEventListener('timeupdate', (ev) => syncLyric(ev.target.currentTime));

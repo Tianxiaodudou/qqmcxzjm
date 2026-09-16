@@ -53,6 +53,9 @@ jobs:
       - name: 构建 .fpk
         run: fnpack build --directory .
 
+      - name: 校验产物内容
+        run: python tools/ci/inspect_fpk.py qqmusic-downloader.fpk
+
       - name: 收集产物信息
         run: ls -lh *.fpk
 

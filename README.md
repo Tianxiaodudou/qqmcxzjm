@@ -5,7 +5,7 @@
 - 应用名（appname）：`qqmusic-downloader`
 - 桌面入口：应用中心 → QQ音乐下载器
 - 访问路径：统一网关 `https://<设备地址>/app/qqmusic-downloader/`
-- 许可证：Apache-2.0
+- 许可证：GPL-3.0-or-later（本项目包含的 `app/qqmusic_api` 为 GPLv3-or-later，故整体以 GPLv3 发布）
 
 ## 功能
 
@@ -68,7 +68,12 @@ Windows 用 `fnpack-1.2.3-windows-amd64`（重命名为 `fnpack.exe`）。
 python tools/ci/check_project.py          # 结构与 JSON/资源引用检查
 pip install -r app/requirements.txt
 python tools/ci/smoke_test.py             # 后端接口冒烟
+python tools/ci/inspect_fpk.py qqmusic-downloader.fpk   # 打包产物内容/可执行位检查
 ```
+
+> ⚠️ 注意：fnOS 要求 `cmd/*` 生命周期脚本带可执行位。Windows 工作树无法保存
+> 可执行位，**本地（Windows）构建出的 .fpk 不可直接安装**，请使用 CI 构建的产物，
+> 或用 `wsl`/Linux 环境构建（构建前 `chmod +x cmd/* wizard/*`）。
 
 ## 项目结构
 
