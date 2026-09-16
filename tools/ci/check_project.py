@@ -58,6 +58,17 @@ def main():
         else:
             warns.append(f"可选文件不存在: {extra}")
 
+    # 桌面窗口入口 url 必须以 / 结尾：否则飞牛网关会把 /app/<name> 307 重定向到
+    # 丢失端口的地址（用 IP:端口 访问时掉到 80 端口），窗口内页面直接 ERR_CONNECTION_REFUSED
+    ui_config = load_json("app/ui/config", required=False)
+    if ui_config:
+        for key, entry in (ui_config.get(".url") or {}).items():
+            url = (entry or {}).get("url", "")
+            if not url.endswith("/"):
+                errors.append(
+                    f"app/ui/config 入口 {key} 的 url 必须以 / 结尾，当前为 {url!r}"
+                )
+
     index = os.path.join(ROOT, "app", "ui", "index.html")
     if os.path.isfile(index):
         html = open(index, encoding="utf-8").read()

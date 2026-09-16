@@ -27,7 +27,7 @@ const state = {
   history: { items: [], record: new Map(), cache: new Map(), observer: null, timer: null },
   settings: {},
   qualities: [],
-  login: { mode: 'qq', sessionId: '', busy: false, timer: null },
+  login: { mode: '', sessionId: '', busy: false, timer: null },
   player: { songmid: '', lyrics: [], index: -1, timer: null, ready: false },
 };
 
@@ -477,8 +477,19 @@ async function loadSonglistPage(reset = false) {
 
 /* ---------------- 登录：二维码 / 手机号 ---------------- */
 function openLogin() {
+  resetLoginPane();
   $('#modal-login').classList.remove('hidden');
-  switchLoginTab(state.login.mode || 'qq');
+}
+
+/** 打开弹窗时的初始状态：三种登录方式都不预选，等用户自己点。 */
+function resetLoginPane() {
+  stopQrPolling();
+  state.login.mode = '';
+  $$('#login-tabs .tab').forEach((tab) => tab.classList.remove('active'));
+  const choose = $('#login-choose');
+  if (choose) choose.classList.remove('hidden');
+  $('#qr-pane').classList.add('hidden');
+  $('#phone-pane').classList.add('hidden');
 }
 
 function closeLogin() {
@@ -487,8 +498,14 @@ function closeLogin() {
 }
 
 function switchLoginTab(mode) {
+  if (!mode) {
+    resetLoginPane();
+    return;
+  }
   state.login.mode = mode;
-  $$('#login-tabs .tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.tab === mode));
+  $$('#login-tabs .tab').forEach((tab) => tab.classList.toggle('active', (tab.dataset.login || tab.dataset.tab) === mode));
+  const choose = $('#login-choose');
+  if (choose) choose.classList.add('hidden');
   const isPhone = mode === 'phone';
   $('#qr-pane').classList.toggle('hidden', isPhone);
   $('#phone-pane').classList.toggle('hidden', !isPhone);
@@ -509,19 +526,25 @@ function stopQrPolling() {
 
 async function startQrLogin(mode) {
   stopQrPolling();
-  $('#qr-image').innerHTML = '<div class="spinner"></div>';
-  $('#qr-mask').classList.add('hidden');
+  const img = $('#qr-image');
+  img.removeAttribute('src');
+  const mask = $('#qr-mask');
+  mask.textContent = '二维码生成中…';
+  mask.classList.remove('hidden');
   $('#qr-hint').textContent = '正在获取二维码…';
   try {
     const data = await api('/login/qrcode', { method: 'POST', body: { type: mode } });
     state.login.sessionId = data.session_id || '';
-    $('#qr-image').innerHTML = `<img src="${esc(data.image || '')}" alt="登录二维码" />`;
+    if (!data.image) throw new Error('未获取到二维码数据');
+    img.src = data.image;
+    mask.classList.add('hidden');
     $('#qr-hint').textContent = mode === 'wx' ? '请使用微信扫码登录' : '请使用手机 QQ 扫码登录';
     pollQrLogin();
   } catch (err) {
     handleError(err);
     $('#qr-hint').textContent = '二维码获取失败，点击重试';
-    $('#qr-image').innerHTML = '<div class="empty">获取失败</div>';
+    mask.textContent = '获取失败，点击重试';
+    mask.classList.remove('hidden');
   }
 }
 
@@ -544,8 +567,10 @@ async function pollQrLogin() {
       $('#qr-hint').textContent = st === 'timeout' ? '二维码已过期，点击刷新' : '已取消授权，点击刷新';
       return;
     }
-    if (st === 'scanned' || st === 'confirm' || st === 'scan') {
+    if (st === 'conf' || st === 'confirm' || st === 'scanned') {
       $('#qr-hint').textContent = '已扫码，请在手机上确认';
+    } else if (st === 'scan' || st === 'waiting' || st === '') {
+      $('#qr-hint').textContent = state.login.mode === 'wx' ? '请使用微信扫码登录' : '请使用手机 QQ 扫码登录';
     }
     state.login.timer = setTimeout(pollQrLogin, 2000);
   } catch (err) {
@@ -1148,8 +1173,15 @@ function bindEvents() {
   $('#btn-logout').addEventListener('click', logout);
 
   $$('#login-tabs .tab').forEach((tab) => {
-    tab.addEventListener('click', () => switchLoginTab(tab.dataset.tab));
+    tab.addEventListener('click', () => switchLoginTab(tab.dataset.login || tab.dataset.tab));
   });
+  // 二维码重新获取：刷新按钮 + 点击遮罩（生成中/失败/过期时显示）
+  const qrRefresh = () => {
+    if (state.login.mode === 'qq' || state.login.mode === 'wx') startQrLogin(state.login.mode);
+  };
+  const qrRefreshBtn = $('#btn-qr-refresh');
+  if (qrRefreshBtn) qrRefreshBtn.addEventListener('click', qrRefresh);
+  $('#qr-mask').addEventListener('click', qrRefresh);
   $('#btn-send-code').addEventListener('click', sendSmsCode);
   $('#btn-phone-login').addEventListener('click', submitPhoneLogin);
   $('#login-code').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') submitPhoneLogin(); });
@@ -1268,7 +1300,9 @@ async function init() {
   startTaskPolling();
   switchView('home');
   try {
-    const data = await api('/status');
+    const health = await api('/health');
+    const badge = document.getElementById('app-version');
+    if (badge && health && health.version) badge.textContent = health.version;
   } catch (err) { /* 忽略 */ }
 }
 

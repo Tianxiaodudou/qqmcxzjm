@@ -7,7 +7,7 @@
             "protocol": "",
             "gatewayPrefix": "/app/qqmusic-downloader",
             "gatewaySocket": "app.sock",
-            "url": "/app/qqmusic-downloader",
+            "url": "/app/qqmusic-downloader/",
             "allUsers": true
         }
     }

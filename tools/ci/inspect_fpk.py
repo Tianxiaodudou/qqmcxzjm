@@ -86,9 +86,37 @@ def main(argv: list[str]) -> int:
 
                 with tarfile.open(fileobj=_io.BytesIO(data.read()), mode="r:gz") as t2:
                     names = {n.lstrip("./") for n in t2.getnames()}
+                    cfg_member = next(
+                        (n for n in t2.getmembers() if n.name.lstrip("./") == "ui/config"), None
+                    )
+                    cfg_raw = (
+                        t2.extractfile(cfg_member).read().decode("utf-8", "replace")
+                        if cfg_member is not None
+                        else None
+                    )
                 for name in ("web/main.py", "ui/index.html", "ui/app.js", "requirements.txt"):
                     if not any(n.endswith(name) for n in names):
                         errors.append(f"app.tgz 中缺少 {name}")
+
+                # 入口 url 必须以 / 结尾：否则飞牛网关会把 /app/<name> 307 重定向到
+                # 丢失端口的地址（IP:端口 访问时掉到 80 端口），桌面窗口直接空白。
+                if cfg_raw is None:
+                    errors.append("app.tgz 中缺少 ui/config")
+                else:
+                    import json as _json
+
+                    try:
+                        entries = _json.loads(cfg_raw).get(".url", {})
+                    except ValueError as exc:
+                        errors.append(f"ui/config 不是合法 JSON：{exc}")
+                    else:
+                        for key, entry in entries.items():
+                            url = (entry or {}).get("url", "")
+                            if not url.endswith("/"):
+                                errors.append(
+                                    f"ui/config 入口 {key} 的 url 必须以 / 结尾，当前为 {url!r}"
+                                    "（否则网关 307 会丢掉端口，桌面窗口空白）"
+                                )
 
     if errors:
         for item in errors:

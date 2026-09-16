@@ -199,17 +199,19 @@
         <button class="icon-btn" data-close="modal-login">✕</button>
       </header>
       <div class="tabs" id="login-tabs">
-        <button class="tab active" data-login="qq">QQ 扫码</button>
+        <button class="tab" data-login="qq">QQ 扫码</button>
         <button class="tab" data-login="wx">微信扫码</button>
         <button class="tab" data-login="phone">手机验证码</button>
       </div>
+      <p class="hint" id="login-choose">请先选择登录方式：QQ 扫码 / 微信扫码 / 手机验证码</p>
       <div class="modal-body">
-        <div id="qr-pane">
+        <div id="qr-pane" class="hidden">
           <div class="qr-box">
             <img id="qr-image" alt="登录二维码" />
             <div class="qr-mask" id="qr-mask">二维码生成中…</div>
           </div>
-          <p class="hint" id="qr-hint">请使用手机 QQ / 微信扫码并确认登录</p>
+          <p class="hint" id="qr-hint">请使用手机 QQ 扫码登录</p>
+          <button class="btn btn-ghost btn-block" id="btn-qr-refresh">刷新二维码</button>
         </div>
         <div id="phone-pane" class="hidden">
           <div class="field">
