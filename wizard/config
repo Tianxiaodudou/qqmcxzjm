@@ -7,18 +7,6 @@
         "helpText": "下载目录请在应用主页的“设置 → 下载目录”中点选文件夹完成（选择即授权飞牛文件夹访问权限，二者已合并，无需在此手填路径）。"
       },
       {
-        "type": "text",
-        "field": "wizard_audio_quality",
-        "label": "下载音质",
-        "initValue": "flac",
-        "rules": [
-          {
-            "pattern": "^(flac|mp3_320|mp3_128)$",
-            "message": "可填 flac、mp3_320 或 mp3_128"
-          }
-        ]
-      },
-      {
         "type": "switch",
         "field": "wizard_lyric_trans",
         "label": "保存歌词翻译",

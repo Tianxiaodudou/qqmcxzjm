@@ -112,7 +112,7 @@ export_app_env() {
     export QQMUSIC_SOCKET="${SOCKET_FILE}"
     export QQMUSIC_APP_VERSION="${TRIM_APPVER:-1.0.0}"
 
-    local media_dir="${VAR_DIR}/downloads" quality="" trans=""
+    local media_dir="${VAR_DIR}/downloads" trans=""
     if [ -f "${SETTINGS_FILE}" ]; then
         # shellcheck disable=SC1090
         . "${SETTINGS_FILE}"
@@ -121,11 +121,9 @@ export_app_env() {
     # 默认落在应用数据目录（一定可写），用户可在应用内点选文件夹改为已授权目录
     [ -n "${wizard_download_dir:-}" ] && media_dir="${wizard_download_dir}"
     mkdir -p "${media_dir}" 2>/dev/null
-    [ -n "${wizard_audio_quality:-}" ] && quality="${wizard_audio_quality}"
     [ -n "${wizard_lyric_trans:-}" ] && trans="${wizard_lyric_trans}"
 
     export QQMUSIC_MEDIA_DIR="${media_dir}"
-    export QQMUSIC_QUALITY="${quality:-flac}"
     export QQMUSIC_LYRIC_TRANS="${trans:-true}"
     export QQMUSIC_AUTHORIZED_PATHS="${TRIM_DATA_ACCESSIBLE_PATHS:-}"
 }

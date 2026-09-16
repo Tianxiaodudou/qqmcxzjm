@@ -686,11 +686,10 @@ async function openPlayer(songmid, songList = []) {
   audio.pause();
   audio.removeAttribute('src');
 
-  const quality = $('#setting-quality') && $('#setting-quality').value ? $('#setting-quality').value : '';
   try {
     const [detail, urlData] = await Promise.all([
       api(`/song/${encodeURIComponent(songmid)}`),
-      api('/song/url', { method: 'POST', body: { songmid, quality } }),
+      api('/song/url', { method: 'POST', body: { songmid } }),
     ]);
     const song = detail.song || cached || {};
     $('#player-title').textContent = song.name || songmid;
@@ -698,7 +697,7 @@ async function openPlayer(songmid, songList = []) {
     if (song.album_pmid) $('#player-cover').style.backgroundImage = `url('${coverUrl(song.album_pmid)}')`;
     audio.src = urlData.url;
     audio.play().catch(() => {});
-    toast(`试听音质：${urlData.quality_label || urlData.quality || '默认'}`, 'info', 2200);
+    toast(`试听音质：${urlData.quality_label || urlData.quality || '默认'}（下载时自动取账号最高音质）`, 'info', 2600);
   } catch (err) {
     handleError(err);
   }
@@ -759,8 +758,14 @@ function renderTasks() {
   }
   box.innerHTML = items
     .map((task) => {
-      const size = task.audio_total ? `${fmtSize(task.audio_received)} / ${fmtSize(task.audio_total)}` : '';
-      const metaExtra = task.meta_step ? `元数据：${task.meta_step}` : '';
+      const size = task.total ? `${fmtSize(task.received)} / ${fmtSize(task.total)}` : '';
+      const steps = task.stages || [];
+      const rows = steps
+        .map((st, idx) => progressRow(st.label || st.key, st.state, st.progress, idx === 0 ? size : ''))
+        .join('');
+      const badge = task.encrypted ? '加密源·已解密' : '音质自动';
+      const detail = task.step ? `<div class="task-foot"><span class="extra">当前：${esc(task.step)}</span></div>` : '';
+      const outName = task.output_name ? `<div class="task-foot"><span class="extra">成品：${esc(task.output_name)}</span></div>` : '';
       return `
         <div class="task-card ${esc(task.status || '')}" data-task="${esc(task.id)}">
           <div class="task-head">
@@ -768,12 +773,13 @@ function renderTasks() {
               <span class="name">${esc(task.name || task.songmid)}</span>
               <span class="sub">${esc(task.singer || '')}</span>
             </div>
-            <span class="badge idle">${esc(QUALITY_TEXT[task.quality] || task.quality || '默认')}</span>
+            <span class="badge idle">${esc(task.quality_label || QUALITY_TEXT[task.quality] || badge)}</span>
             ${stateBadge(task.status)}
             <button class="btn btn-sm btn-primary" data-role="retry" data-task="${esc(task.id)}"${task.status === 'failed' ? '' : ' disabled'}>重试</button>
           </div>
-          ${progressRow('音频', task.audio_state, task.audio_progress, size)}
-          ${progressRow('元数据', task.meta_state, task.meta_progress, metaExtra)}
+          ${rows}
+          ${detail}
+          ${outName}
           ${task.fail_reason ? `<div class="task-foot"><span class="fail-reason">失败原因：${esc(task.fail_reason)}</span></div>` : ''}
         </div>`;
     })
@@ -845,30 +851,29 @@ function historyRowHtml(item) {
         <div class="name">${esc(item.name || item.songmid)}</div>
         <div class="sub">${esc(item.singer || '')}</div>
       </td>
-      <td>${esc(QUALITY_TEXT[item.quality] || item.quality || '')}</td>
-      <td class="col-state" data-role="audio-state"><span class="badge idle">待检查</span></td>
-      <td class="col-state" data-role="meta-state"><span class="badge idle">待检查</span></td>
+      <td>${esc(item.quality_label || QUALITY_TEXT[item.quality] || item.quality || '最高')}</td>
+      <td class="col-state" data-role="file-state"><span class="badge idle">待检查</span></td>
       <td>${fmtTime(item.time)}</td>
     </tr>`;
 }
 
 async function loadHistory() {
   const box = $('#history-body');
-  box.innerHTML = '<tr><td colspan="5" class="empty">加载中…</td></tr>';
+  box.innerHTML = '<tr><td colspan="4" class="empty">加载中…</td></tr>';
   try {
     const data = await api('/history');
     state.history.items = data.items || [];
     state.history.record.clear();
     $('#history-summary').textContent = state.history.items.length ? `共 ${data.total || state.history.items.length} 条记录` : '';
     if (!state.history.items.length) {
-      box.innerHTML = '<tr><td colspan="5" class="empty">暂无下载历史</td></tr>';
+      box.innerHTML = '<tr><td colspan="4" class="empty">暂无下载历史</td></tr>';
       return;
     }
     box.innerHTML = state.history.items.map(historyRowHtml).join('');
     observeHistoryRows();
   } catch (err) {
     handleError(err);
-    box.innerHTML = '<tr><td colspan="5" class="empty">加载失败</td></tr>';
+    box.innerHTML = '<tr><td colspan="4" class="empty">加载失败</td></tr>';
   }
 }
 
@@ -890,9 +895,8 @@ function observeHistoryRows() {
       songmids.forEach((mid) => {
         const row = $(`#history-body tr[data-songmid="${mid}"]`);
         if (!row) return;
-        const state2 = result[mid] || { audio: 'unknown', meta: 'unknown' };
-        renderFileState(row.querySelector('[data-role="audio-state"]'), state2.audio);
-        renderFileState(row.querySelector('[data-role="meta-state"]'), state2.meta);
+        const state2 = result[mid] || { output: 'unknown' };
+        renderFileState(row.querySelector('[data-role="file-state"]'), state2.output ?? state2.audio);
       });
     } catch (err) {
       // 检查失败不打扰用户，保持“待检查”
@@ -933,25 +937,13 @@ async function clearHistory() {
 }
 
 /* ---------------- 设置 ---------------- */
-function fillQualityOptions() {
-  const select = $('#setting-quality');
-  if (select.dataset.filled === '1') return;
-  select.innerHTML = (state.qualities || [])
-    .map((q) => `<option value="${esc(q.value)}">${esc(q.label)}</option>`)
-    .join('');
-  select.dataset.filled = '1';
-}
-
 async function loadSettings() {
   try {
     const data = await api('/settings');
     state.settings = data.settings || {};
-    state.qualities = data.qualities || [];
     state.authorizedDirs = data.authorized_dirs || [];
     state.authorizedHint = data.authorized_hint || '';
-    fillQualityOptions();
     const s = state.settings;
-    $('#setting-quality').value = s.quality || '';
     $('#setting-lyric-trans').checked = !!s.lyric_trans;
     renderDirOptions();
     $('#setting-interval-min').value = s.interval_min_ms || 300;
@@ -1003,7 +995,6 @@ async function saveDownloadDirFromSelect() {
 
 async function saveSettings() {
   const payload = {
-    quality: $('#setting-quality').value,
     lyric_trans: $('#setting-lyric-trans').checked,
     download_dir: $('#setting-download-dir').value.trim(),
     interval_min_ms: Number($('#setting-interval-min').value) || 300,
@@ -1278,7 +1269,6 @@ async function init() {
   switchView('home');
   try {
     const data = await api('/status');
-    if (data.quality) state.settings.quality = data.quality;
   } catch (err) { /* 忽略 */ }
 }
 

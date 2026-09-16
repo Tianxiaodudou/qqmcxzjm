@@ -7,18 +7,6 @@
         "helpText": "下载目录与文件夹访问权限已合并：安装完成后打开应用，在“设置 → 下载目录”里点选一个文件夹即可，选择的同时就完成了飞牛文件夹授权（trim.file.userAccess），无需再单独配置访问权限，也无法在此处手填路径。"
       },
       {
-        "type": "text",
-        "field": "wizard_audio_quality",
-        "label": "下载音质",
-        "initValue": "flac",
-        "rules": [
-          {
-            "pattern": "^(flac|mp3_320|mp3_128)$",
-            "message": "可填 flac、mp3_320 或 mp3_128"
-          }
-        ]
-      },
-      {
         "type": "switch",
         "field": "wizard_lyric_trans",
         "label": "保存歌词翻译",

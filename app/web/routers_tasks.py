@@ -33,14 +33,12 @@ class SongRef(BaseModel):
 
 class BatchRequest(BaseModel):
     songs: list[SongRef] = Field(default_factory=list)
-    quality: str = ""
 
 
 class SettingsRequest(BaseModel):
     download_dir: str | None = None
     # 目录来自飞牛原生文件夹选择器（选择即授权），此时放行"授权记录尚未可查询"的短暂窗口
     dir_from_picker: bool = False
-    quality: str | None = None
     lyric_trans: bool | None = None
     interval_min_ms: int | None = None
     interval_max_ms: int | None = None
@@ -132,10 +130,8 @@ async def create_tasks(payload: BatchRequest) -> dict[str, Any]:
         raise errors.BadRequestError("请先选择歌曲")
     if len(songs) > MAX_BATCH:
         raise errors.BadRequestError(f"单次最多创建 {MAX_BATCH} 个任务")
-    quality = payload.quality or store.load_settings().get("quality", env.DEFAULT_QUALITY)
-    if quality not in env.QUALITY_MAP:
-        raise errors.BadRequestError("不支持该音质")
-    created = manager.create_batch(songs, quality)
+    # 音质无需指定：下载时自动选用登录账号可用的最高音质
+    created = manager.create_batch(songs)
     return {"ok": True, "created": [t.to_public() for t in created]}
 
 
@@ -184,22 +180,16 @@ async def check_history(payload: dict[str, Any] = Body(default={})) -> dict[str,
     for songmid in songmids:
         item = index.get(songmid)
         if not item:
-            result[songmid] = {"audio": "unknown", "meta": "unknown", "fingerprint": "none"}
+            result[songmid] = {"output": "unknown", "fingerprint": "none"}
             continue
-        fingerprint = "|".join(
-            (
-                security.file_fingerprint(Path(item.get("audio_path") or "")),
-                security.file_fingerprint(Path(item.get("meta_path") or "")),
-            )
-        )
+        fingerprint = security.file_fingerprint(Path(item.get("output") or ""))
         with _check_lock:
             cached = _check_cache.get(songmid)
         if cached and cached[0] == fingerprint:
             result[songmid] = cached[1]
             continue
         state = {
-            "audio": _file_state(item.get("audio_path") or ""),
-            "meta": _file_state(item.get("meta_path") or ""),
+            "output": _file_state(item.get("output") or ""),
             "fingerprint": fingerprint,
         }
         with _check_lock:
@@ -226,7 +216,6 @@ async def get_settings(request: Request) -> dict[str, Any]:
     return {
         "ok": True,
         "settings": settings,
-        "qualities": [{"value": k, "label": env.quality_label(k)} for k in env.QUALITY_MAP],
         "authorized_dirs": auth["dirs"],
         # 网关不可用时按"无授权信息"处理，避免开发/独立环境下锁死设置
         "authorized_ok": bool(auth["ok"]) or not fnos_api.available(),
@@ -248,10 +237,6 @@ async def update_settings(payload: SettingsRequest, request: Request) -> dict[st
                     raise errors.BadRequestError("该目录未获得授权，请重新选择")
             extra.append(payload.download_dir)
         settings["download_dir"] = str(_validate_dir(payload.download_dir, extra))
-    if payload.quality is not None:
-        if payload.quality not in env.QUALITY_MAP:
-            raise errors.BadRequestError("不支持该音质")
-        settings["quality"] = payload.quality
     if payload.lyric_trans is not None:
         settings["lyric_trans"] = bool(payload.lyric_trans)
     if payload.interval_min_ms is not None:

@@ -43,11 +43,9 @@ class UrlRequest(BaseModel):
 # --------------------------------------------------------------------------
 @router.get("/status")
 async def status() -> dict[str, Any]:
-    settings = store.load_settings()
     return {
         "ok": True,
         "logged_in": service.status()["logged_in"],
-        "quality": settings.get("quality", env.DEFAULT_QUALITY),
     }
 
 
@@ -149,7 +147,7 @@ async def song_lyric(songmid: str, trans: int = Query(1)) -> dict[str, Any]:
 @router.post("/song/url")
 async def song_url(payload: UrlRequest, quality: str = Query("")) -> dict[str, Any]:
     """预览播放用：只取直链，不创建下载任务。"""
-    target_quality = payload.quality or quality or store.load_settings().get("quality", env.DEFAULT_QUALITY)
+    target_quality = payload.quality or quality or env.DEFAULT_QUALITY
     data = await service.preview_url(payload.songmid, target_quality)
     return {"ok": True, **data}
 

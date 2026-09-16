@@ -426,11 +426,19 @@ class QQService:
         if result != 0 or not purl:
             raise errors.AppError("该音质不可用（可能受版权或会员限制）", code="no_permission")
         host = await self.cdn_host()
+        filename = str(getattr(item, "filename", "") or "")
+        ekey = str(getattr(item, "ekey", "") or "")
+        kind, _ = env.QUALITY_MAP.get(quality, ("plain", ""))
+        name_part = filename.rsplit("/", 1)[-1]
+        ext = ("." + name_part.rsplit(".", 1)[1].lower()) if "." in name_part else ""
         return {
             "url": host + purl,
-            "filename": str(getattr(item, "filename", "") or ""),
+            "filename": filename,
             "quality": quality,
             "quality_label": env.quality_label(quality),
+            "encrypted": kind == "encrypted",
+            "ekey": ekey,
+            "ext": ext,
             "expires_in": self._to_int(getattr(response, "expiration", 0)),
         }
 

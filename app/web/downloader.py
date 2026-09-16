@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import random
+import shutil
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -14,7 +14,7 @@ from typing import Any
 
 import httpx
 
-from . import env, errors, security, store
+from . import decrypt, env, errors, security, store, tagging
 
 logger = logging.getLogger("qqmusic.download")
 
@@ -22,13 +22,22 @@ PENDING = "pending"
 DOWNLOADING = "downloading"
 DONE = "done"
 FAILED = "failed"
+SKIPPED = "skipped"
 
-META_STEPS = ("detail", "lyric", "cover", "manifest")
+# 四个阶段：前端按此顺序渲染进度条
+STAGES: tuple[tuple[str, str], ...] = (
+    ("download", "音频下载"),
+    ("meta", "元数据获取"),
+    ("decrypt", "解密"),
+    ("merge", "元数据合并"),
+)
+
+WORK_DIR_NAME = "work"
 
 
 @dataclass
 class DownloadTask:
-    """一首歌 = 一个任务 = 加密音频文件 + 元数据 JSON 文件。"""
+    """一首歌 = 一个任务：下载 → 取元数据 → 解密 → 合并，最终只留一个可播放成品。"""
 
     id: str
     songmid: str
@@ -36,18 +45,23 @@ class DownloadTask:
     name: str
     singer: str
     album_pmid: str = ""
+    album: str = ""
     quality: str = ""
-    audio_state: str = PENDING
-    meta_state: str = PENDING
+    quality_label: str = ""
+    encrypted: bool = False
+    states: dict[str, str] = field(default_factory=lambda: {key: PENDING for key, _ in STAGES})
+    progress: dict[str, float] = field(default_factory=lambda: {key: 0.0 for key, _ in STAGES})
+    step: str = ""
+    received: int = 0
+    total: int = 0
+    output_path: str = ""
+    output_name: str = ""
+    output_size: int = 0
+    output_ext: str = ""
+    cover_embedded: bool = False
+    lyric_embedded: bool = False
     status: str = DOWNLOADING
     fail_reason: str | None = None
-    audio_progress: float = 0.0
-    audio_received: int = 0
-    audio_total: int = 0
-    meta_progress: float = 0.0
-    meta_step: str = ""
-    audio_path: str = ""
-    meta_path: str = ""
     message: str = ""
     created_at: int = field(default_factory=lambda: int(time.time()))
     updated_at: int = field(default_factory=lambda: int(time.time()))
@@ -55,12 +69,30 @@ class DownloadTask:
     def touch(self) -> None:
         self.updated_at = int(time.time())
 
+    def state_of(self, stage: str) -> str:
+        return self.states.get(stage, PENDING)
+
+    def set_stage(
+        self,
+        stage: str,
+        state: str | None = None,
+        progress: float | None = None,
+        step: str | None = None,
+    ) -> None:
+        if state is not None:
+            self.states[stage] = state
+        if progress is not None:
+            self.progress[stage] = max(0.0, min(1.0, float(progress)))
+        if step is not None:
+            self.step = step
+        self.touch()
+
     def refresh_status(self) -> None:
-        """任务整体状态由音频与元数据两项共同决定。"""
-        states = (self.audio_state, self.meta_state)
-        if FAILED in states:
+        """任务整体状态：任一阶段失败即失败，全部结束即成功。"""
+        values = [self.state_of(key) for key, _ in STAGES]
+        if FAILED in values:
             self.status = FAILED
-        elif all(s == DONE for s in states):
+        elif all(s in (DONE, SKIPPED) for s in values):
             self.status = "success"
         else:
             self.status = DOWNLOADING
@@ -69,8 +101,16 @@ class DownloadTask:
     def to_public(self) -> dict[str, Any]:
         """返回给前端的数据（不含任何凭证）。"""
         data = asdict(self)
-        data["audio_progress"] = round(self.audio_progress, 4)
-        data["meta_progress"] = round(self.meta_progress, 4)
+        data["progress"] = {key: round(float(value), 4) for key, value in self.progress.items()}
+        data["stages"] = [
+            {
+                "key": key,
+                "label": label,
+                "state": self.state_of(key),
+                "progress": data["progress"].get(key, 0.0),
+            }
+            for key, label in STAGES
+        ]
         return data
 
 
@@ -81,6 +121,8 @@ class DownloadManager:
         self._service = service
         self._tasks: dict[str, DownloadTask] = {}
         self._order: list[str] = []
+        # 运行期数据（封面字节/歌词/工作目录等），只在内存中，不落盘、不进下载目录
+        self._runtime: dict[str, dict[str, Any]] = {}
         self._queue: asyncio.Queue[str] = asyncio.Queue()
         self._worker: asyncio.Task[None] | None = None
         self._running = False
@@ -91,13 +133,12 @@ class DownloadManager:
         if self._worker is None or self._worker.done():
             self._running = True
             self._worker = asyncio.create_task(self._run_worker())
-        # 恢复中断的任务（音频已完成的跳过）
+        # 恢复中断的任务：中断的阶段重置为 pending，已完成的阶段保留
         for task in self._ordered():
-            if task.audio_state == DOWNLOADING:
-                task.audio_state = PENDING
-            if task.meta_state == DOWNLOADING:
-                task.meta_state = PENDING
-            if task.status == DOWNLOADING or PENDING in (task.audio_state, task.meta_state):
+            for key, _ in STAGES:
+                if task.state_of(key) == DOWNLOADING:
+                    task.states[key] = PENDING
+            if task.status == DOWNLOADING or any(task.state_of(k) == PENDING for k, _ in STAGES):
                 self._enqueue(task.id)
 
     async def stop(self) -> None:
@@ -113,6 +154,7 @@ class DownloadManager:
 
     # ---------------- 对外接口 ----------------
     def submit(self, song: dict[str, Any], quality: str = "") -> DownloadTask:
+        """创建任务。音质无需指定：会自动选用登录账号可用的最高音质。"""
         songmid = str(song.get("songmid") or song.get("mid") or "")
         if not songmid:
             raise errors.BadRequestError("缺少歌曲 mid")
@@ -124,7 +166,7 @@ class DownloadManager:
             name=str(song.get("name") or song.get("title") or songmid),
             singer=str(song.get("singer") or ""),
             album_pmid=str(song.get("album_pmid") or ""),
-            quality=quality or store.load_settings().get("quality", env.DEFAULT_QUALITY),
+            quality=str(quality or ""),
         )
         self._tasks[task_id] = task
         self._order.append(task_id)
@@ -132,11 +174,11 @@ class DownloadManager:
         self._save()
         return task
 
-    def create_batch(self, songs: list[dict[str, Any]], quality: str = "") -> list[DownloadTask]:
+    def create_batch(self, songs: list[dict[str, Any]]) -> list[DownloadTask]:
         """批量创建：串行入队（风控要求，避免 tight loop）。"""
         created: list[DownloadTask] = []
         for song in songs:
-            created.append(self.submit(song, quality))
+            created.append(self.submit(song))
         return created
 
     def list_tasks(self) -> list[dict[str, Any]]:
@@ -146,21 +188,18 @@ class DownloadManager:
         return self._tasks.get(task_id)
 
     def retry(self, task_id: str) -> DownloadTask:
-        """手动重试：只把 failed 的项重置为 pending，done 的保持不动。"""
+        """手动重试：把失败/中断的阶段重置为 pending，已完成的阶段保留。"""
         task = self._tasks.get(task_id)
         if not task:
             raise errors.BadRequestError("任务不存在")
-        if task.audio_state == FAILED:
-            task.audio_state = PENDING
-            task.audio_received = 0
-            task.audio_progress = 0.0
-        if task.meta_state == FAILED:
-            task.meta_state = PENDING
-            task.meta_progress = 0.0
-            task.meta_step = ""
-        if task.audio_state == DONE and task.meta_state == DONE:
-            task.status = "success"
-            task.touch()
+        for key, _ in STAGES:
+            if task.state_of(key) in (FAILED, DOWNLOADING, PENDING):
+                task.states[key] = PENDING
+                task.progress[key] = 0.0
+        if all(task.state_of(key) in (DONE, SKIPPED) for key, _ in STAGES):
+            task.fail_reason = None
+            task.refresh_status()
+            self._save()
             return task
         task.fail_reason = None
         task.message = ""
@@ -175,6 +214,7 @@ class DownloadManager:
         for tid in list(self._tasks):
             if tid not in keep:
                 del self._tasks[tid]
+                self._cleanup_work(tid)
         self._order = [tid for tid in self._order if tid in self._tasks]
         self._save()
         return removed
@@ -213,119 +253,292 @@ class DownloadManager:
     async def _run_task(self, task: DownloadTask) -> None:
         settings = store.load_settings()
         target_dir = Path(settings.get("download_dir") or env.DATA_DIR / "downloads")
+        work_dir = env.DATA_DIR / WORK_DIR_NAME / task.id
+        target_dir.mkdir(parents=True, exist_ok=True)
 
-        if task.audio_state != DONE:
-            await self._download_audio(task, target_dir)
-        if task.audio_state == DONE and task.meta_state != DONE:
-            await self._download_metadata(task, target_dir)
+        runtime = self._runtime.setdefault(task.id, {})
+        pipeline = (
+            ("download", self._stage_download),
+            ("meta", self._stage_metadata),
+            ("decrypt", self._stage_decrypt),
+            ("merge", self._stage_merge),
+        )
+        for key, handler in pipeline:
+            if task.state_of(key) in (DONE, SKIPPED) and self._stage_ready(key, runtime):
+                continue
+            task.states[key] = PENDING
+            await handler(task, work_dir, target_dir, runtime)
 
-    async def _download_audio(self, task: DownloadTask, target_dir: Path) -> None:
-        task.audio_state = DOWNLOADING
-        task.meta_step = ""
+    @staticmethod
+    def _stage_ready(key: str, runtime: dict[str, Any]) -> bool:
+        """已完成阶段在本次运行中是否仍有可用数据（进程重启后内存数据会丢）。"""
+        if key == "download":
+            return Path(str(runtime.get("source") or "")).exists()
+        if key == "meta":
+            return "lyric" in runtime and "cover" in runtime
+        if key == "decrypt":
+            return bool(runtime.get("decrypted"))
+        return True
+
+    # ---------------- 阶段一：下载（自动选用账号可用的最高音质） ----------------
+    async def _stage_download(
+        self,
+        task: DownloadTask,
+        work_dir: Path,
+        target_dir: Path,
+        runtime: dict[str, Any],
+    ) -> None:
+        work_dir.mkdir(parents=True, exist_ok=True)
+        task.set_stage("download", DOWNLOADING, 0.0, "获取歌曲信息")
+        self._save()
+
+        detail = await self._service.song_detail(task.songmid) or {}
+        runtime["detail"] = detail
+        if detail:
+            task.name = str(detail.get("name") or task.name)
+            task.singer = str(detail.get("singer") or task.singer)
+            task.album = str(detail.get("album") or task.album)
+            task.album_pmid = str(detail.get("album_pmid") or task.album_pmid)
+            if detail.get("songid"):
+                task.songid = int(detail["songid"])
+        sizes = detail.get("sizes") or {}
+
+        source = work_dir / "source.bin"
+        chosen: dict[str, Any] | None = None
+        last_reason = ""
+        for quality in env.QUALITY_ORDER:
+            try:
+                resolved = await self._service.song_url(task.songmid, quality)
+            except Exception as exc:  # noqa: BLE001
+                last_reason = str(exc)
+                logger.info("音质 %s 不可用：%s", quality, security.sanitize_log(last_reason))
+                continue
+            url = str(resolved.get("url") or "")
+            if not url:
+                last_reason = "接口未返回播放地址"
+                continue
+            if resolved.get("encrypted") and not resolved.get("ekey"):
+                # 没有 ekey 说明账号拿不到该音质的完整文件（QQ 只会退回试听片段）
+                last_reason = "该音质无权限"
+                logger.info("音质 %s 无解密密钥，跳过", quality)
+                continue
+
+            expected = int(sizes.get(env.QUALITY_SIZE_KEYS.get(quality, ""), 0) or 0)
+            task.set_stage("download", None, 0.02, f"下载 {env.quality_label(quality)}")
+            self._save()
+            size = await self._fetch(task, url, source, expected)
+            if expected and resolved.get("encrypted") and size < int(expected * 0.9):
+                # 文件明显偏小：账号只能拿到试听片段，降级重试
+                last_reason = "该音质仅返回试听片段"
+                logger.info("音质 %s 为试听片段（%s < %s），降级", quality, size, expected)
+                continue
+            chosen = resolved
+            task.quality = quality
+            task.quality_label = env.quality_label(quality)
+            task.encrypted = bool(resolved.get("encrypted"))
+            break
+
+        if chosen is None:
+            raise errors.UpstreamError(f"没有可用的音质：{last_reason or '未知原因'}")
+
+        runtime["resolved"] = {
+            "ekey": str(chosen.get("ekey") or ""),
+            "ext": str(chosen.get("ext") or ""),
+            "encrypted": bool(chosen.get("encrypted")),
+        }
+        runtime["source"] = str(source)
+        task.received = source.stat().st_size
+        task.total = task.received
+        task.set_stage("download", DONE, 1.0, "")
         task.refresh_status()
         self._save()
 
-        quality = task.quality or env.DEFAULT_QUALITY
-        # 先取详情：拿到 media_mid、歌手、封面 pmid 与各音质大小
-        detail = await self._service.song_detail(task.songmid)
-        if detail:
-            task.name = detail.get("name") or task.name
-            task.singer = detail.get("singer") or task.singer
-            task.album_pmid = detail.get("album_pmid") or task.album_pmid
-            if detail.get("songid"):
-                task.songid = int(detail["songid"])
-        resolved = await self._service.song_url(task.songmid, quality)
-        url = resolved["url"]
-        extension = Path(resolved.get("filename") or "").suffix or ".bin"
-        filename = security.sanitize_filename(f"{task.singer} - {task.name}{extension}")
-
-        target_dir.mkdir(parents=True, exist_ok=True)
-        audio_path = target_dir / filename
-        temp_path = audio_path.with_suffix(audio_path.suffix + ".part")
-
-        sizes = (detail or {}).get("sizes") or {}
-        task.audio_total = int(sizes.get(env.QUALITY_SIZE_KEYS.get(quality, ""), 0) or 0)
-
+    async def _fetch(self, task: DownloadTask, url: str, dest: Path, expected: int = 0) -> int:
+        """流式下载，边下边汇报进度；返回实际字节数。"""
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        received = 0
+        reported = 0.0
         async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=120.0), follow_redirects=True) as client:
             async with client.stream("GET", url) as response_stream:
                 response_stream.raise_for_status()
                 content_length = int(response_stream.headers.get("Content-Length") or 0)
-                if content_length:
-                    task.audio_total = content_length
-                received = 0
-                with open(temp_path, "wb") as handle:
+                total = content_length or expected or 0
+                task.total = total
+                with open(dest, "wb") as handle:
                     async for chunk in response_stream.aiter_bytes(256 * 1024):
                         handle.write(chunk)
                         received += len(chunk)
-                        task.audio_received = received
-                        task.audio_total = max(task.audio_total, received)
-                        task.audio_progress = min(1.0, received / task.audio_total) if task.audio_total else 0.0
-                        task.touch()
-        os.replace(temp_path, audio_path)
+                        task.received = received
+                        if total:
+                            ratio = min(0.99, received / total)
+                            if ratio - reported >= 0.05:
+                                reported = ratio
+                                task.set_stage("download", None, ratio)
+                                self._save()
+                        else:
+                            task.touch()
+        if not received:
+            raise errors.UpstreamError("下载内容为空")
+        return received
 
-        try:
-            os.chmod(audio_path, 0o644)
-        except OSError:
-            pass
-
-        task.audio_path = str(audio_path)
-        task.audio_progress = 1.0
-        task.audio_state = DONE
-        task.refresh_status()
+    # ---------------- 阶段二：元数据（详情 / 歌词 / 封面） ----------------
+    async def _stage_metadata(
+        self,
+        task: DownloadTask,
+        work_dir: Path,
+        target_dir: Path,
+        runtime: dict[str, Any],
+    ) -> None:
+        task.set_stage("meta", DOWNLOADING, 0.05, "获取歌曲信息")
         self._save()
 
-    async def _download_metadata(self, task: DownloadTask, target_dir: Path) -> None:
-        task.meta_state = DOWNLOADING
-        task.meta_step = META_STEPS[0]
-        task.meta_progress = 0.05
-        task.refresh_status()
+        detail = runtime.get("detail") or {}
+        task.set_stage("meta", None, 0.3, "获取歌词")
         self._save()
 
         settings = store.load_settings()
         want_trans = bool(settings.get("lyric_trans", env.DEFAULT_LYRIC_TRANS))
-        detail = await self._service.song_detail(task.songmid)
-        task.meta_step = META_STEPS[1]
-        task.meta_progress = 0.3
-        task.touch()
-        lyric = await self._service.song_lyric(task.songid or task.songmid, trans=want_trans)
-        task.meta_step = META_STEPS[2]
-        task.meta_progress = 0.6
-        task.touch()
+        try:
+            lyric = await self._service.song_lyric(task.songid or task.songmid, trans=want_trans)
+        except Exception as exc:  # noqa: BLE001
+            logger.info("歌词获取失败：%s", security.sanitize_log(str(exc)))
+            lyric = {}
+        runtime["lyric"] = lyric or {}
+        task.set_stage("meta", None, 0.65, "获取封面")
+        self._save()
 
-        cover_path = ""
-        pmid = (detail or {}).get("album_pmid") or task.album_pmid
+        cover = b""
+        pmid = str(detail.get("album_pmid") or task.album_pmid or "")
         if pmid:
-            cover_path = await self._download_cover(task, target_dir, pmid)
-        task.meta_step = META_STEPS[3]
-        task.meta_progress = 0.85
-        task.touch()
+            cover = await self._fetch_cover(pmid)
+        runtime["cover"] = cover
+        task.cover_embedded = bool(cover)
+        task.lyric_embedded = bool((lyric or {}).get("lyric"))
+        task.set_stage("meta", DONE, 1.0, "")
+        task.refresh_status()
+        self._save()
 
-        payload = {
+    async def _fetch_cover(self, pmid: str) -> bytes:
+        url = f"https://y.gtimg.cn/music/photo_new/T002R500x500M000{pmid}.jpg"
+        try:
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+                response = await client.get(url)
+                response.raise_for_status()
+            return response.content
+        except Exception as exc:  # noqa: BLE001
+            logger.info("封面下载失败：%s", security.sanitize_log(str(exc)))
+            return b""
+
+    # ---------------- 阶段三：解密 ----------------
+    async def _stage_decrypt(
+        self,
+        task: DownloadTask,
+        work_dir: Path,
+        target_dir: Path,
+        runtime: dict[str, Any],
+    ) -> None:
+        task.set_stage("decrypt", DOWNLOADING, 0.0, "解密音频")
+        self._save()
+
+        source = Path(str(runtime.get("source") or ""))
+        if not source.exists():
+            raise errors.UpstreamError("原始音频不存在，请重试")
+        resolved = runtime.get("resolved") or {}
+        ext = str(resolved.get("ext") or source.suffix or ".bin")
+        dest = work_dir / f"decrypted{ext}"
+
+        def report(done: int, total: int) -> None:
+            task.received = int(done)
+            if total:
+                task.total = int(total)
+            ratio = (float(done) / float(total)) if total else 0.0
+            if ratio - task.progress.get("decrypt", 0.0) >= 0.02 or ratio >= 1.0:
+                task.set_stage("decrypt", None, ratio)
+                self._save()
+            else:
+                task.touch()
+
+        result = decrypt.decrypt_file(source, dest, str(resolved.get("ekey") or ""), progress=report)
+        output = Path(str(result.get("output") or dest))
+        real_ext = str(result.get("ext") or ext)
+        if output.suffix.lower() != real_ext.lower():
+            renamed = output.with_suffix(real_ext)
+            os.replace(output, renamed)
+            output = renamed
+        runtime["decrypted"] = str(output)
+        runtime["ext"] = real_ext
+        task.encrypted = bool(result.get("encrypted"))
+        task.output_ext = real_ext
+        task.output_size = int(result.get("audio_size") or output.stat().st_size)
+        task.set_stage("decrypt", DONE, 1.0, "")
+        task.refresh_status()
+        self._save()
+
+    # ---------------- 阶段四：元数据合并（写出成品） ----------------
+    async def _stage_merge(
+        self,
+        task: DownloadTask,
+        work_dir: Path,
+        target_dir: Path,
+        runtime: dict[str, Any],
+    ) -> None:
+        task.set_stage("merge", DOWNLOADING, 0.0, "写入元数据")
+        self._save()
+
+        stem = security.sanitize_filename(f"{task.name}_{task.singer}_{task.songmid}", fallback=task.songmid)
+        source = Path(str(runtime.get("decrypted") or ""))
+        if not source.exists() and work_dir.is_dir():
+            found = sorted(work_dir.glob("decrypted.*"))
+            if found:
+                source = found[0]
+                runtime.setdefault("decrypted", str(source))
+        ext = str(runtime.get("ext") or source.suffix or ".bin")
+        if not ext.startswith("."):
+            ext = "." + ext
+        final = target_dir / f"{stem}{ext}"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        if source.exists():
+            if final.exists() and final.resolve() != source.resolve():
+                final.unlink()
+            shutil.move(str(source), str(final))
+        elif not final.exists():
+            raise errors.UpstreamError("解密后的音频不存在，请重试")
+
+        detail = runtime.get("detail") or {}
+        lyric = runtime.get("lyric") or {}
+        meta = {
+            "title": task.name,
+            "artist": task.singer,
+            "album": task.album or str(detail.get("album") or ""),
             "songmid": task.songmid,
             "songid": task.songid,
-            "name": task.name,
-            "singer": task.singer,
-            "album": (detail or {}).get("album") or "",
-            "album_pmid": pmid,
-            "quality": task.quality,
-            "lyric_trans": want_trans,
-            "lyric": lyric.get("lyric", ""),
-            "lyric_translation": lyric.get("translation", ""),
-            "cover": cover_path,
-            "audio": task.audio_path,
-            "generated_at": int(time.time()),
+            "comment": "QQ音乐下载器",
         }
-        meta_path = target_dir / security.sanitize_filename(f"{task.singer} - {task.name}.json")
-        temp_path = meta_path.with_suffix(".json.part")
-        with open(temp_path, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False, indent=2)
-        os.replace(temp_path, meta_path)
 
-        task.meta_path = str(meta_path)
-        task.meta_progress = 1.0
-        task.meta_step = "done"
-        task.meta_state = DONE
+        def report(value: float) -> None:
+            task.set_stage("merge", None, min(1.0, float(value)))
+
+        try:
+            tagging.embed(
+                final,
+                meta,
+                cover=runtime.get("cover") or b"",
+                lyric=str(lyric.get("lyric") or ""),
+                translation=str(lyric.get("translation") or ""),
+                progress=report,
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise errors.UpstreamError(f"元数据写入失败：{exc}") from exc
+
+        task.output_path = str(final)
+        task.output_name = final.name
+        task.output_size = final.stat().st_size
+        task.received = task.output_size
+        task.total = task.output_size
+        task.message = f"已输出 {final.name}"
+        task.set_stage("merge", DONE, 1.0, "")
         task.refresh_status()
+        self._cleanup_work(task.id)
         self._save()
 
         store.append_history(
@@ -335,34 +548,25 @@ class DownloadManager:
                 "name": task.name,
                 "singer": task.singer,
                 "status": task.status,
-                "audio_state": task.audio_state,
-                "meta_state": task.meta_state,
-                "audio_path": task.audio_path,
-                "meta_path": task.meta_path,
                 "quality": task.quality,
+                "quality_label": task.quality_label,
+                "output": task.output_path,
+                "encrypted": task.encrypted,
+                "cover": task.cover_embedded,
+                "lyric": task.lyric_embedded,
                 "fail_reason": task.fail_reason,
             }
         )
 
-    async def _download_cover(self, task: DownloadTask, target_dir: Path, pmid: str) -> str:
-        url = f"https://y.gtimg.cn/music/photo_new/T002R500x500M000{pmid}.jpg"
-        cover_path = target_dir / security.sanitize_filename(f"{task.singer} - {task.name}.jpg")
-        try:
-            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-                response = await client.get(url)
-                response.raise_for_status()
-                cover_path.write_bytes(response.content)
-            return str(cover_path)
-        except Exception as exc:  # noqa: BLE001
-            logger.info("封面下载失败：%s", security.sanitize_log(str(exc)))
-            return ""
+    def _cleanup_work(self, task_id: str) -> None:
+        shutil.rmtree(env.DATA_DIR / WORK_DIR_NAME / task_id, ignore_errors=True)
+        self._runtime.pop(task_id, None)
 
     def _fail(self, task: DownloadTask, reason: str, message: str = "") -> None:
-        """失败标记：只标记尚未完成的部分。"""
-        if task.audio_state != DONE:
-            task.audio_state = FAILED
-        if task.meta_state != DONE:
-            task.meta_state = FAILED
+        """失败标记：只标记尚未完成的阶段。"""
+        for key, _ in STAGES:
+            if task.state_of(key) not in (DONE, SKIPPED):
+                task.states[key] = FAILED
         task.fail_reason = reason
         task.message = security.sanitize_log(message)[:300]
         task.refresh_status()

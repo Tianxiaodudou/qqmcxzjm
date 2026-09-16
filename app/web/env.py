@@ -24,7 +24,9 @@ SETTINGS_FILE = DATA_DIR / "settings.json"
 TASKS_FILE = DATA_DIR / "tasks.json"
 HISTORY_FILE = DATA_DIR / "history.json"
 
-# 默认音质
+# 音质：不再由用户选择，自动按从高到低尝试，取登录账号可用的最高音质
+QUALITY_ORDER = ("master", "flac", "ogg_320", "mp3_320", "acc_192", "mp3_128")
+# 兜底音质：仅当上面全部不可用时使用
 DEFAULT_QUALITY = _env("QQMUSIC_QUALITY", "mp3_320")
 DEFAULT_LYRIC_TRANS = _env("QQMUSIC_LYRIC_TRANS", "true").lower() in {"1", "true", "yes", "on"}
 
@@ -65,12 +67,12 @@ QUALITY_SIZE_KEYS = {
 }
 
 QUALITY_LABELS = {
-    "flac": "SQ 无损 FLAC（加密 .mflac）",
-    "master": "臻品母带（加密 .mflac）",
-    "ogg_320": "HQ 高品质 OGG（加密 .mgg）",
+    "master": "臻品母带",
+    "flac": "SQ 无损 FLAC",
+    "ogg_320": "HQ 高品质 OGG",
     "mp3_320": "HQ 高品质 MP3 320K",
+    "acc_192": "HQ 高品质 AAC 192K",
     "mp3_128": "标准音质 MP3 128K",
-    "acc_192": "HQ 高品质 AAC",
 }
 
 

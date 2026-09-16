@@ -131,7 +131,7 @@
           <div class="history-scroll" id="history-scroll">
             <table class="history-table">
               <thead>
-                <tr><th>歌名</th><th>歌手</th><th>记录时间</th><th>最终状态</th><th>文件状态</th></tr>
+                <tr><th>歌名 / 歌手</th><th>音质</th><th>成品文件</th><th>记录时间</th></tr>
               </thead>
               <tbody id="history-body"></tbody>
             </table>
@@ -143,9 +143,8 @@
           <div class="settings-card">
             <h2>下载设置</h2>
             <div class="field">
-              <label for="setting-quality">默认音质</label>
-              <select id="setting-quality"></select>
-              <p class="hint">无损/高品质音质会下载加密文件（.mflac/.mgg），可用 qmdec 解密。</p>
+              <label>音质</label>
+              <p class="hint">无需选择：每首歌都自动下载<b>当前登录账号可用的最高音质</b>（无损/臻品母带优先）。加密文件（.mflac/.mgg）会在下载后自动解密，并写入完整元数据，产出可直接播放的成品文件。</p>
             </div>
             <div class="field">
               <label for="setting-lyric-trans">歌词翻译</label>

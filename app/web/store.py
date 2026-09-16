@@ -109,7 +109,6 @@ def login_status() -> dict[str, Any]:
 # --------------------------------------------------------------------------
 DEFAULT_SETTINGS: dict[str, Any] = {
     "lyric_trans": env.DEFAULT_LYRIC_TRANS,
-    "quality": env.DEFAULT_QUALITY,
     "download_dir": env.WIZARD_MEDIA_DIR or str(env.DATA_DIR / "downloads"),
     "interval_min_ms": 300,
     "interval_max_ms": 800,
