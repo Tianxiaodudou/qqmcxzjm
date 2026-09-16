@@ -499,6 +499,10 @@ body.has-player { overflow: hidden; }
   padding: 24px;
 }
 
+/* 播放器弹窗要压住其它弹窗：三个 .modal 原本都是 60，而 #modal-player 在 DOM 最前面，
+   同级下会被后面的「歌单歌曲列表」弹窗盖住，所以单独抬高一层（仍低于 loading=80 / toast=90） */
+#modal-player { z-index: 70; }
+
 .modal-card {
   background: var(--bg-soft);
   border: 1px solid var(--border);
