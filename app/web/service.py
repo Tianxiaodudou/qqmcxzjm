@@ -86,7 +86,10 @@ class QQService:
         try:
             return await handler(client)
         except Exception as exc:  # noqa: BLE001
-            if errors.classify(exc) != errors.CREDENTIAL_EXPIRED:
+            kind = errors.classify(exc)
+            if kind == errors.RATELIMITED:
+                raise errors.RatelimitedAppError() from exc
+            if kind != errors.CREDENTIAL_EXPIRED:
                 raise
             logger.info("检测到凭证失效，尝试自动刷新")
             if await self.refresh():
@@ -96,6 +99,8 @@ class QQService:
                     if errors.classify(retry_exc) == errors.CREDENTIAL_EXPIRED:
                         store.clear_credentials()
                         raise errors.LoginExpiredError("登录已过期，请重新登录") from retry_exc
+                    if errors.classify(retry_exc) == errors.RATELIMITED:
+                        raise errors.RatelimitedAppError() from retry_exc
                     raise
             store.clear_credentials()
             raise errors.LoginExpiredError("登录已过期，请重新登录") from exc

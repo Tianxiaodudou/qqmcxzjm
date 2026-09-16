@@ -10,6 +10,9 @@ const BASE = (() => {
 const API = `${BASE}/api`;
 const STATIC = `${BASE}/static`;
 
+/* 目录授权流程（宿主内直接选择 / 独立浏览器走 openAppAuth 回调） */
+import { requestUserDirectory, listenForAuthResult } from './js/auth-callback.js';
+
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
@@ -977,6 +980,28 @@ async function saveSettings() {
   }
 }
 
+/* 通过飞牛文件授权选择下载目录 */
+async function chooseDownloadDir() {
+  if (!window.trimApp) {
+    toast('请在飞牛 fnOS 应用中打开此页面以选择目录', 'warn');
+    return;
+  }
+  try {
+    const paths = await withLoading(() => requestUserDirectory(window.trimApp));
+    if (!paths || !paths.length) {
+      /* 独立浏览器：等待授权回调页回传结果 */
+      toast('已打开授权窗口，完成后将自动更新', 'info');
+      return;
+    }
+    const data = await withLoading(() => api('/settings', { method: 'POST', body: { download_dir: paths[0] } }));
+    state.settings = data.settings || state.settings;
+    $('#setting-download-dir').value = (state.settings && state.settings.download_dir) || '';
+    toast('下载目录已授权', 'success');
+  } catch (err) {
+    handleError(err);
+  }
+}
+
 /* ---------------- 宿主 SDK ---------------- */
 function initSdk() {
   import('./js/trim-web-app.js')
@@ -994,6 +1019,15 @@ function initSdk() {
             if (theme) document.documentElement.dataset.theme = String(theme);
           }).catch(() => {});
         }
+        /* 独立浏览器授权完成后（回调页 postMessage 同源回传）刷新目录设置 */
+        listenForAuthResult(async () => {
+          try {
+            await loadSettings();
+            toast('目录授权已更新', 'success');
+          } catch (err) {
+            handleError(err);
+          }
+        });
       } catch (e) {
         /* 非飞牛宿主环境（本地浏览器调试）下静默降级 */
       }

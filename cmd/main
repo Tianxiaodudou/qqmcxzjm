@@ -18,7 +18,15 @@ PID_FILE="${VAR_DIR}/app.pid"
 LOG_FILE="${VAR_DIR}/info.log"
 SOCKET_FILE="${APP_DIR}/${GATEWAY_SOCKET}"
 SETTINGS_FILE="${ETC_DIR}/settings.env"
-PY_RUNTIME_DIR="/var/apps/python312/target/bin"
+# python312 运行时路径：优先从 TRIM_APPDEST（形如 <APPS_ROOT>/<app>/target）推导，避免硬编码路径
+APPS_ROOT="$(cd "$(dirname "$(dirname "${TRIM_APPDEST:-}")")" 2>/dev/null && pwd)" || APPS_ROOT=""
+if [ -z "${APPS_ROOT}" ] || [ ! -x "${APPS_ROOT}/python312/target/bin/python3" ]; then
+    APPS_ROOT="/${QQMUSIC_APPS_VOL:-var}/apps"
+    if [ -n "${TRIM_APPDEST_VOL:-}" ] && [ -x "${TRIM_APPDEST_VOL}/apps/python312/target/bin/python3" ]; then
+        APPS_ROOT="${TRIM_APPDEST_VOL}/apps"
+    fi
+fi
+PY_RUNTIME_DIR="${APPS_ROOT}/python312/target/bin"
 BOOTSTRAP_PY="${PY_RUNTIME_DIR}/python3"
 REQ_FILE="${APP_DIR}/requirements.txt"
 STAMP_FILE="${VENV_DIR}/.requirements.sha1"

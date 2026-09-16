@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>目录授权回调</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="app-main">
+    <section class="settings-card">
+      <h2>目录授权</h2>
+      <p class="hint" id="auth-status">正在处理授权结果…</p>
+    </section>
+  </main>
+  <script type="module">
+    import { handleAuthCallback } from './js/auth-callback.js';
+    handleAuthCallback().then((ok) => {
+      if (ok) {
+        const el = document.getElementById('auth-status');
+        if (el) el.textContent = '授权完成，可关闭此页面。';
+      }
+    });
+  </script>
+</body>
+</html>
