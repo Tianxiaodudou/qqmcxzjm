@@ -88,6 +88,7 @@ async def _handle_unexpected(_: Request, exc: Exception) -> JSONResponse:
 # API 路由
 # --------------------------------------------------------------------------
 from .routers_music import router as music_router  # noqa: E402
+from .routers_local import router as local_router  # noqa: E402
 from .routers_tasks import router as tasks_router  # noqa: E402
 
 async def health() -> dict:
@@ -115,6 +116,7 @@ for _p in _API_PREFIXES:
     _tag = _p.strip("/").replace("/", "-") or "root"
     app.include_router(music_router, prefix=f"{_p}/api")
     app.include_router(tasks_router, prefix=f"{_p}/api")
+    app.include_router(local_router, prefix=f"{_p}/api")
     app.add_api_route(
         f"{_p}/api/health",
         health,

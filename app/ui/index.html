@@ -131,7 +131,7 @@
           <div class="history-scroll" id="history-scroll">
             <table class="history-table">
               <thead>
-                <tr><th>歌名 / 歌手</th><th>音质</th><th>成品文件</th><th>记录时间</th></tr>
+                <tr><th>歌名 / 歌手</th><th>音质</th><th>成品文件</th><th>记录时间</th><th>操作</th></tr>
               </thead>
               <tbody id="history-body"></tbody>
             </table>
@@ -177,17 +177,25 @@
     </main>
   </div>
 
-  <!-- 预览播放器 -->
-  <div class="player hidden" id="player">
-    <img class="player-cover" id="player-cover" alt="" />
-    <div class="player-meta">
-      <div class="player-title" id="player-title">—</div>
-      <div class="player-artist" id="player-artist">—</div>
-    </div>
-    <div class="player-lyric" id="player-lyric">歌词加载中…</div>
-    <div class="player-controls">
-      <audio id="player-audio" controls preload="none"></audio>
-      <button class="btn btn-ghost" id="btn-player-close" title="关闭">✕</button>
+  <!-- 播放器弹窗：播放器 + 同步歌词 + 元数据字段（试听 / 播放已下载文件共用） -->
+  <div class="modal hidden" id="modal-player">
+    <div class="modal-card player-card">
+      <header class="modal-head">
+        <h3 id="pw-title">播放器</h3>
+        <button class="icon-btn" id="pw-close" data-close="modal-player" title="关闭">✕</button>
+      </header>
+      <div class="modal-body player-body">
+        <div class="pw-top">
+          <img class="pw-cover hidden" id="pw-cover" alt="" />
+          <div class="pw-side">
+            <audio id="pw-audio" controls preload="metadata"></audio>
+            <div class="pw-meta" id="pw-meta"></div>
+          </div>
+        </div>
+        <div class="pw-hint" id="pw-hint"></div>
+        <div class="pw-lrc" id="pw-lrc"></div>
+        <div class="pw-fields" id="pw-fields"></div>
+      </div>
     </div>
   </div>
 
