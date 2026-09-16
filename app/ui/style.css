@@ -418,7 +418,8 @@ input:focus, select:focus { border-color: var(--primary); }
 /* 播放器打开时锁住背景滚动，避免弹窗后面的页面跟着动 */
 body.has-player { overflow: hidden; }
 
-.player-card { width: min(720px, 96vw); max-width: 96vw; }
+/* 用 .modal-card.player-card 提高特异性，避免被 .modal-card 的 420px 上限压窄 */
+.modal-card.player-card { width: min(720px, 96vw); max-width: min(720px, 96vw); }
 
 .player-body { display: flex; flex-direction: column; gap: 12px; }
 
