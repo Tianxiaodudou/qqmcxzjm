@@ -399,36 +399,52 @@ def _decrypt_whole(
         raise DecryptError("解密密钥无效，请重新登录后再试")
 
     cipher = make_cipher(final_key)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    # 只开一次句柄，首块解密后必须从同一句柄的当前位置继续读，
+    # 否则会把首块重复按后续偏移解密，CHUNK_SIZE 之后的数据整体错位。
     with open(src, "rb") as fin:
         first = bytearray(fin.read(min(CHUNK_SIZE, size)))
-    raw_head = bytes(first)
-    probe = bytearray(first)
-    cipher.decrypt(probe, 0)
-    ext = sniff_ext(bytes(probe))
+        raw_head = bytes(first)
+        probe = bytearray(first)
+        cipher.decrypt(probe, 0)
+        ext = sniff_ext(bytes(probe))
 
-    if ext == ".bin":
-        # 解出来不是音频：可能本来就是明文文件，或密钥不匹配
-        plain_ext = sniff_ext(raw_head)
-        if plain_ext == ".bin":
-            raise DecryptError("解密结果无法识别为音频格式（密钥可能不正确）")
-        return _copy_plain(src, dst, size, progress)
+        if ext == ".bin":
+            # 解出来不是音频：可能本来就是明文文件，或密钥不匹配
+            plain_ext = sniff_ext(raw_head)
+            if plain_ext == ".bin":
+                raise DecryptError("解密结果无法识别为音频格式（密钥可能不正确）")
+            with open(dst, "wb") as fout:
+                fout.write(raw_head)
+                copied = len(raw_head)
+                if progress:
+                    progress(copied, size)
+                while copied < size:
+                    chunk = fin.read(min(CHUNK_SIZE, size - copied))
+                    if not chunk:
+                        break
+                    fout.write(chunk)
+                    copied += len(chunk)
+                    if progress:
+                        progress(copied, size)
+            if plain_ext == ".bin":
+                plain_ext = src.suffix or ".bin"
+            return {"encrypted": False, "ext": plain_ext, "output": str(dst), "audio_size": size}
 
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    written = 0
-    with open(src, "rb") as fin, open(dst, "wb") as fout:
-        if progress:
-            progress(len(probe), size)
-        fout.write(probe)
-        written = len(probe)
-        while written < size:
-            chunk = bytearray(fin.read(min(CHUNK_SIZE, size - written)))
-            if not chunk:
-                break
-            cipher.decrypt(chunk, written)
-            fout.write(chunk)
-            written += len(chunk)
+        with open(dst, "wb") as fout:
+            fout.write(probe)
+            written = len(probe)
             if progress:
                 progress(written, size)
+            while written < size:
+                chunk = bytearray(fin.read(min(CHUNK_SIZE, size - written)))
+                if not chunk:
+                    break
+                cipher.decrypt(chunk, written)
+                fout.write(chunk)
+                written += len(chunk)
+                if progress:
+                    progress(written, size)
     return {"encrypted": True, "ext": ext, "output": str(dst), "audio_size": size}
 
 
