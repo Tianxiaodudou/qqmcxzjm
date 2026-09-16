@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import random
 import time
 import uuid
 from typing import Any, Awaitable, Callable, TypeVar
@@ -378,10 +379,42 @@ class QQService:
         return [self.song_summary(s) for s in raw]
 
     async def favourite_songlists(self) -> list[dict[str, Any]]:
-        euin = self._euin()
-        response = await self.call(lambda c: c.user.get_fav_songlist(euin))
-        raw = self._find_list(response, ("songlist", "songlists", "disslist", "list", "items"))
-        return [self.songlist_summary(i) for i in raw]
+        """我的歌单：自建歌单（含「我喜欢」）在前，收藏的外部歌单在后。
+
+        上游收藏歌单接口（PlaylistFavRead/CgiGetPlaylistFavInfo）会直接返回
+        code=80050，这里降级为只返回自建歌单，避免整个「我的歌单」页面 500。
+        """
+        created_uin = self._to_int(self._euin(), 0)
+        items: list[dict[str, Any]] = []
+        seen: set[int] = set()
+        failures: list[BaseException] = []
+
+        def collect(response: Any) -> None:
+            raw = self._find_list(
+                response,
+                ("playlist", "playlists", "songlist", "songlists", "disslist", "list", "items"),
+            )
+            for entry in raw or []:
+                summary = self.songlist_summary(entry)
+                if summary["id"] and summary["id"] not in seen:
+                    seen.add(summary["id"])
+                    items.append(summary)
+
+        try:
+            collect(await self.call(lambda c: c.user.get_created_songlist(created_uin)))
+        except Exception as exc:  # noqa: BLE001
+            failures.append(exc)
+            logger.info("获取自建歌单失败：%s", security.sanitize_log(str(exc)))
+
+        try:
+            collect(await self.call(lambda c: c.user.get_fav_songlist(self._euin())))
+        except Exception as exc:  # noqa: BLE001
+            failures.append(exc)
+            logger.info("获取收藏歌单失败：%s", security.sanitize_log(str(exc)))
+
+        if not items and failures:
+            raise failures[0]
+        return items
 
     # ------------------------------------------------------------------
     # 播放/下载直链（purl 需与 CDN 节点拼接）

@@ -90,3 +90,15 @@ class RatelimitedAppError(AppError):
         message: str = "QQ音乐接口请求过于频繁，请稍后重试；登录后可减少限流",
     ) -> None:
         super().__init__(message, code=RATELIMITED, status_code=429)
+
+
+class UpstreamError(AppError):
+    """上游返回异常或数据缺失（拿不到地址/文件不完整等），属于可重试的失败。"""
+
+    def __init__(
+        self,
+        message: str = "上游接口返回异常，请稍后重试",
+        code: str = "upstream_error",
+        status_code: int = 502,
+    ) -> None:
+        super().__init__(message, code=code, status_code=status_code)

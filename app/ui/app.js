@@ -1150,9 +1150,10 @@ function bindBulkControls({ container, songs, sel, allSel, invertBtn, downloadBt
 }
 
 function bindModals() {
-  $$('.modal-close').forEach((btn) => {
+  $$('[data-close], .modal-close').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const modal = btn.closest('.modal');
+      const target = btn.dataset.close ? document.getElementById(btn.dataset.close) : null;
+      const modal = target || btn.closest('.modal');
       if (modal) modal.classList.add('hidden');
     });
   });

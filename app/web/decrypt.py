@@ -346,38 +346,116 @@ def sniff_ext(data: bytes) -> str:
 # --------------------------------------------------------------------------
 # 主流程
 # --------------------------------------------------------------------------
+ENCRYPTED_SUFFIXES = (
+    ".mflac",
+    ".mflac0",
+    ".mgg",
+    ".mgg1",
+    ".mggl",
+    ".qmc0",
+    ".qmc2",
+    ".qmc3",
+    ".qmcflac",
+    ".qmcogg",
+)
+
+
+def _copy_plain(src: Path, dst: Path, size: int, progress: ProgressFn = None) -> dict:
+    """非加密文件：原样复制，音质不变。"""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    with open(src, "rb") as fin, open(dst, "wb") as fout:
+        while True:
+            chunk = fin.read(CHUNK_SIZE)
+            if not chunk:
+                break
+            fout.write(chunk)
+            copied += len(chunk)
+            if progress:
+                progress(copied, size)
+    with open(dst, "rb") as handle:
+        ext = sniff_ext(handle.read(16))
+    if ext == ".bin":
+        ext = src.suffix or ".bin"
+    return {"encrypted": False, "ext": ext, "output": str(dst), "audio_size": size}
+
+
+def _decrypt_whole(
+    src: Path,
+    dst: Path,
+    ekey_b64: str,
+    size: int,
+    progress: ProgressFn = None,
+) -> dict:
+    """无尾部的整文件加密（新版 mflac/mgg）：音频长度等于文件长度。
+
+    解密从文件偏移 0 开始，密钥由 ekey 派生。
+    """
+    size = src.stat().st_size
+    if size <= 0:
+        raise DecryptError("原始音频为空，请重试")
+    final_key = derive_key(ekey_b64)
+    if not final_key:
+        raise DecryptError("解密密钥无效，请重新登录后再试")
+
+    cipher = make_cipher(final_key)
+    with open(src, "rb") as fin:
+        first = bytearray(fin.read(min(CHUNK_SIZE, size)))
+    raw_head = bytes(first)
+    probe = bytearray(first)
+    cipher.decrypt(probe, 0)
+    ext = sniff_ext(bytes(probe))
+
+    if ext == ".bin":
+        # 解出来不是音频：可能本来就是明文文件，或密钥不匹配
+        plain_ext = sniff_ext(raw_head)
+        if plain_ext == ".bin":
+            raise DecryptError("解密结果无法识别为音频格式（密钥可能不正确）")
+        return _copy_plain(src, dst, size, progress)
+
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    written = 0
+    with open(src, "rb") as fin, open(dst, "wb") as fout:
+        if progress:
+            progress(len(probe), size)
+        fout.write(probe)
+        written = len(probe)
+        while written < size:
+            chunk = bytearray(fin.read(min(CHUNK_SIZE, size - written)))
+            if not chunk:
+                break
+            cipher.decrypt(chunk, written)
+            fout.write(chunk)
+            written += len(chunk)
+            if progress:
+                progress(written, size)
+    return {"encrypted": True, "ext": ext, "output": str(dst), "audio_size": size}
+
+
 def decrypt_file(
     src: Path,
     dst: Path,
     ekey_b64: str = "",
     progress: ProgressFn = None,
+    encrypted_hint: bool = False,
 ) -> dict:
     """把 src（可能是加密文件）解密写出到 dst。
 
     返回 {"encrypted": bool, "ext": 输出扩展名, "output": 路径, "audio_size": 字节数}。
     未加密的文件直接复制，不改变任何数据。
+    encrypted_hint 表示上游接口已声明该文件为加密文件（用于识别无尾部的新版加密格式）。
     """
     tail = parse_tail(src)
     size = src.stat().st_size
+    ekey = (ekey_b64 or "").strip()
 
     if tail is None:
-        # 非加密文件：原样复制，音质不变
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        copied = 0
-        with open(src, "rb") as fin, open(dst, "wb") as fout:
-            while True:
-                chunk = fin.read(CHUNK_SIZE)
-                if not chunk:
-                    break
-                fout.write(chunk)
-                copied += len(chunk)
-                if progress:
-                    progress(copied, size)
-        with open(dst, "rb") as handle:
-            ext = sniff_ext(handle.read(16))
-        if ext == ".bin":
-            ext = src.suffix or ".bin"
-        return {"encrypted": False, "ext": ext, "output": str(dst), "audio_size": size}
+        looks_encrypted = bool(encrypted_hint or src.suffix.lower() in ENCRYPTED_SUFFIXES)
+        if looks_encrypted:
+            if not ekey:
+                raise DecryptError("缺少解密密钥（ekey），请重新登录后再试")
+            return _decrypt_whole(src, dst, ekey, size, progress)
+        return _copy_plain(src, dst, size, progress)
 
     audio_size = int(tail.get("audio_size") or 0)
     if audio_size <= 0 or audio_size > size:

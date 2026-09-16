@@ -273,11 +273,13 @@ class DownloadManager:
     def _stage_ready(key: str, runtime: dict[str, Any]) -> bool:
         """已完成阶段在本次运行中是否仍有可用数据（进程重启后内存数据会丢）。"""
         if key == "download":
-            return Path(str(runtime.get("source") or "")).exists()
+            source = str(runtime.get("source") or "").strip()
+            return bool(source) and Path(source).is_file()
         if key == "meta":
             return "lyric" in runtime and "cover" in runtime
         if key == "decrypt":
-            return bool(runtime.get("decrypted"))
+            decrypted = str(runtime.get("decrypted") or "").strip()
+            return bool(decrypted) and Path(decrypted).is_file()
         return True
 
     # ---------------- 阶段一：下载（自动选用账号可用的最高音质） ----------------
@@ -458,7 +460,13 @@ class DownloadManager:
             else:
                 task.touch()
 
-        result = decrypt.decrypt_file(source, dest, str(resolved.get("ekey") or ""), progress=report)
+        result = decrypt.decrypt_file(
+            source,
+            dest,
+            str(resolved.get("ekey") or ""),
+            progress=report,
+            encrypted_hint=bool(resolved.get("encrypted")),
+        )
         output = Path(str(result.get("output") or dest))
         real_ext = str(result.get("ext") or ext)
         if output.suffix.lower() != real_ext.lower():
