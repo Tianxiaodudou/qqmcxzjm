@@ -24,6 +24,10 @@ jobs:
       - name: 项目结构检查
         run: python tools/ci/check_project.py
 
+      - name: 校验 tag 与 manifest 版本一致
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: python tools/ci/release_notes.py --tag "$GITHUB_REF_NAME" --check-only
+
       - name: Python 语法检查
         run: python -m compileall -q app/web app/qqmusic_api
 
@@ -67,8 +71,30 @@ jobs:
           path: '*.fpk'
           if-no-files-found: error
 
+      - name: 生成发行说明（含提交记录与改动统计）
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          python tools/ci/release_notes.py --tag "$GITHUB_REF_NAME" \
+            --out release-notes.md --changelog CHANGELOG.md --readme README.md
+          cat release-notes.md
+
       - name: 附加到 Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: '*.fpk'
+          body_path: release-notes.md
+
+      - name: 回写 CHANGELOG.md 与 README 版本号
+        if: startsWith(github.ref, 'refs/tags/v')
+        continue-on-error: true
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- CHANGELOG.md README.md; then
+            echo "更新日志与版本号已是最新，无需回写"
+            exit 0
+          fi
+          git add CHANGELOG.md README.md
+          git commit -m "chore(release): 同步 $GITHUB_REF_NAME 的更新日志与版本号 [skip ci]"
+          git push origin HEAD:main

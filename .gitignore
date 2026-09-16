@@ -17,3 +17,6 @@ var/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# 发行说明（CI 生成）
+release-notes.md
