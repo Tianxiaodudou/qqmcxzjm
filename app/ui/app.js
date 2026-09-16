@@ -1228,6 +1228,19 @@ async function saveSettings() {
   }
 }
 
+/* 宿主调用超时保护：未挂载飞牛 SDK 桥接通道时 pickUserFile 永不返回，避免「一直转圈」 */
+function withTimeout(promise, ms, message) {
+  let timer = 0;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const err = new Error(message);
+      err.code = 'PICKER_TIMEOUT';
+      reject(err);
+    }, ms);
+  });
+  return Promise.race([Promise.resolve(promise), timeout]).finally(() => clearTimeout(timer));
+}
+
 /* 通过飞牛文件授权选择下载目录 */
 async function chooseDownloadDir() {
   if (!window.trimApp) {
@@ -1235,7 +1248,11 @@ async function chooseDownloadDir() {
     return;
   }
   try {
-    const paths = await withLoading(() => requestUserDirectory(window.trimApp));
+    const paths = await withLoading(() => withTimeout(
+      requestUserDirectory(window.trimApp),
+      20000,
+      '目录选择器没有响应：请从飞牛桌面/应用中心打开本应用后再试（用浏览器直连地址打开不支持飞牛的文件夹选择器）。',
+    ));
     if (!paths || !paths.length) {
       /* 独立浏览器：等待授权回调页回传结果 */
       toast('已打开授权窗口，完成后将自动更新', 'info');
@@ -1246,6 +1263,10 @@ async function chooseDownloadDir() {
     toast('已选择并授权该文件夹，下载目录已更新', 'success');
     await loadSettings();
   } catch (err) {
+    if (err && err.code === 'PICKER_TIMEOUT') {
+      toast(err.message, 'warn');
+      return;
+    }
     handleError(err);
   }
 }

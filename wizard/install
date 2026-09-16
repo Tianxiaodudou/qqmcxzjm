@@ -1,16 +1,64 @@
 [
   {
-    "stepTitle": "下载设置",
+    "stepTitle": "存储与权限",
     "items": [
       {
         "type": "tips",
-        "helpText": "下载目录与文件夹访问权限已合并：安装完成后打开应用，在“设置 → 下载目录”里点选一个文件夹即可，选择的同时就完成了飞牛文件夹授权（trim.file.userAccess），无需再单独配置访问权限，也无法在此处手填路径。"
+        "helpText": "下载目录 = 文件夹访问权限，二者已合并为一次点选：安装完成后打开应用，在「设置 → 下载目录」点「选择文件夹」，用飞牛内嵌的文件夹选择器点选一个文件夹，点选即完成授权（trim.file.userAccess），无需也不支持在此手填路径。"
       },
+      {
+        "type": "tips",
+        "helpText": "安装后默认先把成品保存到应用数据目录（一定可写），你随时可以在应用内改成音乐库里的文件夹。"
+      }
+    ]
+  },
+  {
+    "stepTitle": "功能选项",
+    "items": [
       {
         "type": "switch",
         "field": "wizard_lyric_trans",
-        "label": "保存歌词翻译",
+        "label": "保存歌词翻译（原文 + 中文翻译）",
         "initValue": "true"
+      },
+      {
+        "type": "tips",
+        "helpText": "音质无需选择：下载时自动使用当前登录账号可用的最高音质（臻品母带 / SQ 无损 / HQ / 标准），并从高到低逐级降级重试；加密音频（.mflac/.mgg）会自动解密还原，歌名、歌手、专辑、封面与歌词一并写入音频文件，文件名统一为 歌名_歌手_歌曲ID。"
+      }
+    ]
+  },
+  {
+    "stepTitle": "下载节奏",
+    "items": [
+      {
+        "type": "text",
+        "field": "wizard_interval_min_ms",
+        "label": "单曲之间的最短间隔（毫秒）",
+        "initValue": "300",
+        "rules": [
+          {
+            "required": true,
+            "pattern": "^[0-9]{2,5}$",
+            "message": "请输入 2~5 位数字，例如 300"
+          }
+        ]
+      },
+      {
+        "type": "text",
+        "field": "wizard_interval_max_ms",
+        "label": "单曲之间的最长间隔（毫秒）",
+        "initValue": "800",
+        "rules": [
+          {
+            "required": true,
+            "pattern": "^[0-9]{2,5}$",
+            "message": "请输入 2~5 位数字，例如 800"
+          }
+        ]
+      },
+      {
+        "type": "tips",
+        "helpText": "批量下载时每首歌之间会随机等待「最短 ~ 最长」毫秒，降低触发风控的概率；默认 300 ~ 800 毫秒，安装后可在应用设置或应用中心的配置向导里修改。"
       }
     ]
   }

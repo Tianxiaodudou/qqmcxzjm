@@ -70,16 +70,31 @@ export async function requestUserDirectory(sdk) {
     return [];
   }
 
-  const result = await sdk.pickUserFile({
+  const result = await withHostTimeout(sdk.pickUserFile({
     directory: true,
     title: '选择下载目录',
     okText: '确认授权',
     sidebarGroup: SIDEBAR_GROUP,
-  });
+  }), HOST_CALL_TIMEOUT_MS);
   if (!result || result.code !== 0) {
     throw new Error((result && result.msg) || '目录授权未完成');
   }
   return result.data || [];
+}
+
+/* 宿主调用超时保护：宿主未挂载飞牛 SDK 桥接通道时，pickUserFile 永远不会返回 */
+const HOST_CALL_TIMEOUT_MS = 20000;
+
+function withHostTimeout(promise, ms) {
+  let timer = 0;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const err = new Error('飞牛宿主无响应：应用未以微应用方式打开（缺少宿主桥接通道），请从飞牛桌面的应用卡片打开后再选择目录。');
+      err.code = 'PICKER_TIMEOUT';
+      reject(err);
+    }, ms);
+  });
+  return Promise.race([Promise.resolve(promise), timeout]).finally(() => clearTimeout(timer));
 }
 
 /* 仅在同源回调页执行 */

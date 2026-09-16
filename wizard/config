@@ -4,13 +4,39 @@
     "items": [
       {
         "type": "tips",
-        "helpText": "下载目录请在应用主页的“设置 → 下载目录”中点选文件夹完成（选择即授权飞牛文件夹访问权限，二者已合并，无需在此手填路径）。"
+        "helpText": "下载目录与文件夹访问权限已合并：请回到应用主页，在「设置 → 下载目录」点「选择文件夹」，用飞牛文件夹选择器点选即完成授权，无需在此手填路径。"
       },
       {
         "type": "switch",
         "field": "wizard_lyric_trans",
-        "label": "保存歌词翻译",
+        "label": "保存歌词翻译（原文 + 中文翻译）",
         "initValue": "true"
+      },
+      {
+        "type": "text",
+        "field": "wizard_interval_min_ms",
+        "label": "单曲之间的最短间隔（毫秒）",
+        "initValue": "300",
+        "rules": [
+          {
+            "required": true,
+            "pattern": "^[0-9]{2,5}$",
+            "message": "请输入 2~5 位数字，例如 300"
+          }
+        ]
+      },
+      {
+        "type": "text",
+        "field": "wizard_interval_max_ms",
+        "label": "单曲之间的最长间隔（毫秒）",
+        "initValue": "800",
+        "rules": [
+          {
+            "required": true,
+            "pattern": "^[0-9]{2,5}$",
+            "message": "请输入 2~5 位数字，例如 800"
+          }
+        ]
       }
     ]
   }

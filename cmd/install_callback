@@ -30,6 +30,13 @@ save_settings() {
     mkdir -p "${ETC_DIR}" 2>/dev/null
     {
         printf 'wizard_lyric_trans=%s\n' "${wizard_lyric_trans:-true}"
+        # 下载节奏（安装向导收集；空值表示使用应用内置默认）
+        if [ -n "${wizard_interval_min_ms:-}" ]; then
+            printf 'wizard_interval_min_ms=%s\n' "${wizard_interval_min_ms}"
+        fi
+        if [ -n "${wizard_interval_max_ms:-}" ]; then
+            printf 'wizard_interval_max_ms=%s\n' "${wizard_interval_max_ms}"
+        fi
         # v1.0.1：下载目录与文件夹授权合并，由应用内「选择文件夹」决定；旧包传入时保留
         if [ -n "${wizard_download_dir:-}" ]; then
             printf 'wizard_download_dir=%s\n' "${wizard_download_dir}"

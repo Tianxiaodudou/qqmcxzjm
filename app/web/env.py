@@ -11,6 +11,15 @@ def _env(key: str, default: str = "") -> str:
     return value if value else default
 
 
+def _env_int(key: str, default: int, low: int = 0, high: int = 600000) -> int:
+    """读取整数环境变量，非法值回落默认，并夹在 [low, high] 内。"""
+    try:
+        number = int(str(_env(key, str(default))).strip())
+    except (TypeError, ValueError):
+        return default
+    return min(max(number, low), high)
+
+
 APP_VERSION = _env("QQMUSIC_APP_VERSION", "1.0.0")
 APP_DIR = Path(_env("QQMUSIC_APP_DIR", str(Path(__file__).resolve().parent.parent)))
 UI_DIR = Path(_env("QQMUSIC_UI_DIR", str(APP_DIR / "ui")))
@@ -29,6 +38,10 @@ QUALITY_ORDER = ("master", "flac", "ogg_320", "mp3_320", "acc_192", "mp3_128")
 # 兜底音质：仅当上面全部不可用时使用
 DEFAULT_QUALITY = _env("QQMUSIC_QUALITY", "mp3_320")
 DEFAULT_LYRIC_TRANS = _env("QQMUSIC_LYRIC_TRANS", "true").lower() in {"1", "true", "yes", "on"}
+
+# 下载节奏默认值（安装/配置向导可覆盖：wizard_interval_min_ms / wizard_interval_max_ms）
+DEFAULT_INTERVAL_MIN_MS = _env_int("QQMUSIC_INTERVAL_MIN_MS", 300, low=0, high=60000)
+DEFAULT_INTERVAL_MAX_MS = _env_int("QQMUSIC_INTERVAL_MAX_MS", 800, low=0, high=60000)
 
 # 用户授权可访问的目录（fnOS 提供，冒号分隔）
 AUTHORIZED_PATHS = [p for p in _env("QQMUSIC_AUTHORIZED_PATHS", "").split(":") if p]

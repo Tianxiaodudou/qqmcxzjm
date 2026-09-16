@@ -1,5 +1,52 @@
 #!/bin/bash
+#
+# 卸载后：按卸载向导的选择决定是否清除应用数据
+#   wizard_delete_data=false（默认）：只卸载应用，保留登录状态、设置与下载历史
+#   wizard_delete_data=true：清除应用数据与 Python 运行环境
+# 说明：用户下载的音乐成品文件（含应用数据目录内的默认下载目录）一律保留，
+#       只清理其中残留的临时/未完成文件。
+#
+set -u
 
-### This script is called after the user uninstalls the application.
+VAR_DIR="${TRIM_PKGVAR:-}"
+ETC_DIR="${TRIM_PKGETC:-}"
+LOG_FILE="${VAR_DIR}/uninstall.log"
+
+log_uninstall() {
+    if [ -n "${VAR_DIR}" ] && [ -d "${VAR_DIR}" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "${LOG_FILE}" 2>/dev/null
+    fi
+    return 0
+}
+
+if [ -z "${VAR_DIR}" ] || [ ! -d "${VAR_DIR}" ]; then
+    exit 0
+fi
+
+if [ "${wizard_delete_data:-false}" != "true" ]; then
+    log_uninstall "卸载：保留应用数据（${VAR_DIR}）"
+    exit 0
+fi
+
+log_uninstall "卸载：清除应用数据，已下载的音乐成品保留"
+
+# 运行环境与状态文件
+for item in venv credential.json settings.json tasks.json history.json app.pid info.log; do
+    rm -rf "${VAR_DIR}/${item}" 2>/dev/null
+done
+# 缓存与临时目录
+rm -rf "${VAR_DIR}/tmp" "${VAR_DIR}/cache" "${VAR_DIR}/__pycache__" 2>/dev/null
+
+# 默认下载目录内只清理残留文件，成品音乐保留
+if [ -d "${VAR_DIR}/downloads" ]; then
+    find "${VAR_DIR}/downloads" -maxdepth 3 -type f \
+        \( -name '*.part' -o -name '*.mflac' -o -name '*.mgg' -o -name '*.bin' \) \
+        -delete 2>/dev/null
+fi
+
+# 向导写入的配置文件
+if [ -n "${ETC_DIR}" ]; then
+    rm -f "${ETC_DIR}/settings.env" 2>/dev/null
+fi
 
 exit 0
