@@ -37,6 +37,8 @@ jobs:
     name: 打包 FPK
     needs: validate
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # 允许上传 Release 资产（默认 GITHUB_TOKEN 为只读）
     steps:
       - uses: actions/checkout@v4
 
