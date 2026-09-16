@@ -7,6 +7,7 @@ import logging
 import os
 import random
 import shutil
+import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -126,6 +127,8 @@ class DownloadManager:
         self._queue: asyncio.Queue[str] = asyncio.Queue()
         self._worker: asyncio.Task[None] | None = None
         self._running = False
+        # 解密/打标签在子线程执行，_save 需要跨线程安全
+        self._save_lock = threading.Lock()
 
     # ---------------- 生命周期 ----------------
     async def start(self) -> None:
@@ -391,7 +394,7 @@ class DownloadManager:
         target_dir: Path,
         runtime: dict[str, Any],
     ) -> None:
-        task.set_stage("meta", DOWNLOADING, 0.05, "获取歌曲信息")
+        task.set_stage("meta", DOWNLOADING, 0.08, "获取歌曲信息")
         self._save()
 
         detail = runtime.get("detail") or {}
@@ -406,7 +409,9 @@ class DownloadManager:
             logger.info("歌词获取失败：%s", security.sanitize_log(str(exc)))
             lyric = {}
         runtime["lyric"] = lyric or {}
-        task.set_stage("meta", None, 0.65, "获取封面")
+        task.set_stage("meta", None, 0.55, "整理歌词")
+        self._save()
+        task.set_stage("meta", None, 0.7, "获取封面")
         self._save()
 
         cover = b""
@@ -414,6 +419,7 @@ class DownloadManager:
         if pmid:
             cover = await self._fetch_cover(pmid)
         runtime["cover"] = cover
+        task.set_stage("meta", None, 0.92, "整理元数据")
         task.cover_embedded = bool(cover)
         task.lyric_embedded = bool((lyric or {}).get("lyric"))
         task.set_stage("meta", DONE, 1.0, "")
@@ -454,13 +460,15 @@ class DownloadManager:
             if total:
                 task.total = int(total)
             ratio = (float(done) / float(total)) if total else 0.0
-            if ratio - task.progress.get("decrypt", 0.0) >= 0.02 or ratio >= 1.0:
+            if ratio - task.progress.get("decrypt", 0.0) >= 0.01 or ratio >= 1.0:
                 task.set_stage("decrypt", None, ratio)
                 self._save()
             else:
                 task.touch()
 
-        result = decrypt.decrypt_file(
+        # 纯 Python 解密是 CPU 密集操作，放线程池执行，避免阻塞事件循环（否则进度条会长时间不动）
+        result = await asyncio.to_thread(
+            decrypt.decrypt_file,
             source,
             dest,
             str(resolved.get("ekey") or ""),
@@ -490,7 +498,7 @@ class DownloadManager:
         target_dir: Path,
         runtime: dict[str, Any],
     ) -> None:
-        task.set_stage("merge", DOWNLOADING, 0.0, "写入元数据")
+        task.set_stage("merge", DOWNLOADING, 0.05, "写出音频文件")
         self._save()
 
         stem = security.sanitize_filename(f"{task.name}_{task.singer}_{task.songmid}", fallback=task.songmid)
@@ -511,6 +519,8 @@ class DownloadManager:
             shutil.move(str(source), str(final))
         elif not final.exists():
             raise errors.UpstreamError("解密后的音频不存在，请重试")
+        task.set_stage("merge", None, 0.35, "写入元数据")
+        self._save()
 
         detail = runtime.get("detail") or {}
         lyric = runtime.get("lyric") or {}
@@ -524,10 +534,12 @@ class DownloadManager:
         }
 
         def report(value: float) -> None:
-            task.set_stage("merge", None, min(1.0, float(value)))
+            # tagging 的 0~1 映射到本阶段的 0.35~1.0，避免进度条回退
+            task.set_stage("merge", None, 0.35 + 0.65 * max(0.0, min(1.0, float(value))))
 
         try:
-            tagging.embed(
+            await asyncio.to_thread(
+                tagging.embed,
                 final,
                 meta,
                 cover=runtime.get("cover") or b"",
@@ -584,11 +596,12 @@ class DownloadManager:
 
     # ---------------- 持久化 ----------------
     def _save(self) -> None:
-        try:
-            data = [t.to_public() for t in self._ordered()]
-            store._write_json(env.TASKS_FILE, data, 0o600)  # noqa: SLF001
-        except Exception as exc:  # noqa: BLE001
-            logger.info("任务持久化失败：%s", security.sanitize_log(str(exc)))
+        with self._save_lock:
+            try:
+                data = [t.to_public() for t in self._ordered()]
+                store._write_json(env.TASKS_FILE, data, 0o600)  # noqa: SLF001
+            except Exception as exc:  # noqa: BLE001
+                logger.info("任务持久化失败：%s", security.sanitize_log(str(exc)))
 
     def _load(self) -> None:
         try:

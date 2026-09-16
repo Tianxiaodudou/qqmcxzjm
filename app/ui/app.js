@@ -943,14 +943,19 @@ function progressRow(label, state, progress, extra = '') {
   const key = String(state || '').toLowerCase();
   const done = key === 'done';
   const failed = key === 'failed';
+  const skipped = key === 'skipped';
+  const pending = !done && !failed && !skipped && ['pending', 'queued', 'waiting', ''].includes(key);
   const pct = done ? 100 : Math.max(0, Math.min(100, Math.round((Number(progress) || 0) * 100)));
-  const cls = ['bar', failed ? 'failed' : '', (!done && !failed && pct <= 0) ? 'indeterminate' : ''].filter(Boolean).join(' ');
+  const cls = ['progress', done ? 'done' : '', failed ? 'failed' : '', skipped ? 'skipped' : '', pending ? 'pending' : (!done && !failed ? 'running' : '')]
+    .filter(Boolean).join(' ');
+  const width = done ? 100 : pct > 0 ? pct : (pending || skipped ? 0 : 6);
+  const text = done ? '100%' : failed ? (pct > 0 ? `${pct}%` : '失败') : skipped ? '跳过' : pending ? '等待' : `${pct}%`;
   return `
     <div class="progress-row">
-      <span class="label">${label}</span>
-      <div class="${cls}"><i class="bar-fill" style="width:${pct}%"></i></div>
-      <span class="pct">${done ? '完成' : failed ? '失败' : (pct ? `${pct}%` : '进行中')}</span>
-      <span class="extra">${esc(extra)}</span>
+      <span class="label">${esc(label)}</span>
+      <div class="${cls}"><i class="bar-fill" style="width:${width}%"></i></div>
+      <span class="pct">${text}</span>
+      <span class="value">${esc(extra)}</span>
     </div>`;
 }
 
@@ -1020,9 +1025,9 @@ function startTaskPolling() {
       // 队列空闲时降低轮询频率
       clearInterval(state.tasks.timer);
       state.tasks.timer = null;
-      setTimeout(startTaskPolling, 8000);
+      setTimeout(startTaskPolling, 5000);
     }
-  }, 1500);
+  }, 700);
 }
 
 async function retryTask(taskId) {
