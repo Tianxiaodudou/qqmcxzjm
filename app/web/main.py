@@ -90,11 +90,6 @@ async def _handle_unexpected(_: Request, exc: Exception) -> JSONResponse:
 from .routers_music import router as music_router  # noqa: E402
 from .routers_tasks import router as tasks_router  # noqa: E402
 
-app.include_router(music_router, prefix="/api")
-app.include_router(tasks_router, prefix="/api")
-
-
-@app.get("/api/health")
 async def health() -> dict:
     from . import store
 
@@ -104,6 +99,29 @@ async def health() -> dict:
         "gateway_prefix": env.GATEWAY_PREFIX,
         "logged_in": store.is_logged_in(),
     }
+
+
+# 飞牛应用网关会把「网关前缀」原样透传给应用 socket（例如
+# /app/qqmusic-downloader/api/health 到达应用时仍带前缀），
+# 因此 API 必须同时在「网关前缀」与「根路径」下注册：
+#   /app/qqmusic-downloader/api/*  ← 应用内 iframe / 桌面窗口
+#   /api/*                          ← 网关已剥离前缀或直连场景
+_API_PREFIXES: list[str] = []
+for _candidate in (env.GATEWAY_PREFIX.rstrip("/"), ""):
+    if _candidate not in _API_PREFIXES:
+        _API_PREFIXES.append(_candidate)
+
+for _p in _API_PREFIXES:
+    _tag = _p.strip("/").replace("/", "-") or "root"
+    app.include_router(music_router, prefix=f"{_p}/api")
+    app.include_router(tasks_router, prefix=f"{_p}/api")
+    app.add_api_route(
+        f"{_p}/api/health",
+        health,
+        methods=["GET"],
+        name=f"api-health-{_tag}",
+        include_in_schema=False,
+    )
 
 
 # --------------------------------------------------------------------------

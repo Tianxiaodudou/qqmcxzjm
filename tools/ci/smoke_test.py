@@ -46,6 +46,13 @@ with TestClient(main.app) as client:
         "gateway-prefix-static",
         lambda: client.get("/app/qqmusic-downloader/static/style.css").status_code,
     )
+    # 网关会带前缀透传到应用 socket，API 必须在前缀下同样可用
+    check("gateway-prefix-api-health", lambda: client.get("/app/qqmusic-downloader/api/health").json())
+    check(
+        "gateway-prefix-api-settings",
+        lambda: client.get("/app/qqmusic-downloader/api/settings").json(),
+    )
+    check("gateway-prefix-api-tasks", lambda: client.get("/app/qqmusic-downloader/api/tasks").json())
     check("fav-without-login", lambda: client.get("/api/user/fav").json())
     check("bad-task-create", lambda: client.post("/api/tasks", json={"songs": []}).status_code)
     check("retry-unknown", lambda: client.post("/api/tasks/nope/retry").json())
