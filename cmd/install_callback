@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# 安装完成后：记录向导配置，并把运行时依赖准备放到后台执行
+# 安装完成后：记录向导配置，并同步把运行时依赖装好（包内 wheel 离线安装，通常几秒）
 #
 set -u
 
@@ -45,6 +45,27 @@ save_settings() {
     chmod 600 "${ETC_DIR}/settings.env" 2>/dev/null
 }
 
+# pip 安装依赖：优先用应用包内预置 wheel 离线安装，失败回退镜像/官方源
+install_requirements() {
+    local pip="${VENV_DIR}/bin/pip"
+    local wheels="${TRIM_APPDEST}/wheels"
+    local mirror="${QQMUSIC_PIP_INDEX:-https://mirrors.aliyun.com/pypi/simple/}"
+
+    if [ -d "${wheels}" ] \
+        && "${pip}" install --disable-pip-version-check --no-index --find-links "${wheels}" -r "${REQ_FILE}" >> "${LOG_FILE}" 2>&1; then
+        log_msg "安装阶段：依赖安装完成（应用包内 wheel 离线安装）"
+        return 0
+    fi
+    log_msg "安装阶段：离线安装未完成，改用镜像源安装：${mirror}"
+    if "${pip}" install --disable-pip-version-check --prefer-binary -i "${mirror}" -r "${REQ_FILE}" >> "${LOG_FILE}" 2>&1; then
+        log_msg "安装阶段：依赖安装完成（镜像源）"
+        return 0
+    fi
+    log_msg "安装阶段：镜像源安装失败，回退官方源安装"
+    "${pip}" install --disable-pip-version-check -r "${REQ_FILE}" >> "${LOG_FILE}" 2>&1
+}
+
+# 安装阶段就把运行环境备好（离线 wheel，通常几秒），用户点「启用」时才能秒开
 prepare_runtime() {
     if [ ! -x "${BOOTSTRAP_PY}" ]; then
         log_msg "未找到 python312 运行时，跳过依赖预安装"
@@ -58,17 +79,20 @@ prepare_runtime() {
             return 0
         }
     fi
-    log_msg "安装阶段：预安装 Python 依赖"
-    "${VENV_DIR}/bin/python" -m pip install --disable-pip-version-check --upgrade pip >> "${LOG_FILE}" 2>&1
-    if "${VENV_DIR}/bin/pip" install --disable-pip-version-check -r "${REQ_FILE}" >> "${LOG_FILE}" 2>&1; then
+    if command -v flock >/dev/null 2>&1; then
+        exec 9>>"${VAR_DIR}/.pip.lock"
+        flock -w 600 9 || log_msg "安装阶段：等待依赖安装锁超时"
+    fi
+    if install_requirements; then
         sha1sum "${REQ_FILE}" 2>/dev/null | awk '{print $1}' > "${VENV_DIR}/.requirements.sha1"
-        log_msg "依赖预安装完成"
+        log_msg "安装阶段：依赖预安装完成"
     else
-        log_msg "依赖预安装失败，将在首次启动时重试"
+        log_msg "安装阶段：依赖预安装失败，将在首次启动时重试"
     fi
     return 0
 }
 
 save_settings
-prepare_runtime &
+# 同步执行：安装阶段就装好依赖，用户点「启用」时无需再等（旧的 & 后台方式会让启用与安装抢网络）
+prepare_runtime
 exit 0

@@ -68,7 +68,27 @@ JSON
     log_msg "已修复网关入口配置 ${cfg}"
 }
 
-# 准备运行环境：私有虚拟环境 + 依赖（不打包 venv，不污染系统 Python）
+# pip 安装依赖：优先用应用包内预置的 wheel 离线安装（秒级，不依赖外网）
+install_requirements() {
+    local pip="${VENV_DIR}/bin/pip"
+    local wheels="${APP_DIR}/wheels"
+    local mirror="${QQMUSIC_PIP_INDEX:-https://mirrors.aliyun.com/pypi/simple/}"
+
+    if [ -d "${wheels}" ] \
+        && "${pip}" install --disable-pip-version-check --no-index --find-links "${wheels}" -r "${REQ_FILE}" >> "${LOG_FILE}" 2>&1; then
+        log_msg "依赖安装完成（应用包内 wheel 离线安装）"
+        return 0
+    fi
+    log_msg "离线安装未完成，改用镜像源安装：${mirror}"
+    if "${pip}" install --disable-pip-version-check --prefer-binary -i "${mirror}" -r "${REQ_FILE}" >> "${LOG_FILE}" 2>&1; then
+        log_msg "依赖安装完成（镜像源）"
+        return 0
+    fi
+    log_msg "镜像源安装失败，回退官方源安装"
+    "${pip}" install --disable-pip-version-check -r "${REQ_FILE}" >> "${LOG_FILE}" 2>&1
+}
+
+# 准备运行环境：私有虚拟环境 + 依赖（依赖 wheel 随包分发，离线即可秒装）
 ensure_runtime() {
     if [ ! -x "${VENV_DIR}/bin/python" ]; then
         if [ ! -x "${BOOTSTRAP_PY}" ]; then
@@ -91,14 +111,25 @@ ensure_runtime() {
     fi
 
     if [ ! -f "${STAMP_FILE}" ] || [ "$(cat "${STAMP_FILE}" 2>/dev/null)" != "${sha}" ]; then
-        log_msg "安装 Python 依赖（首次启动可能需要几分钟）..."
-        "${VENV_DIR}/bin/python" -m pip install --disable-pip-version-check --upgrade pip >> "${LOG_FILE}" 2>&1
-        if ! "${VENV_DIR}/bin/pip" install --disable-pip-version-check -r "${REQ_FILE}" >> "${LOG_FILE}" 2>&1; then
-            log_msg "错误：依赖安装失败，详见 ${LOG_FILE}"
-            return 1
+        mkdir -p "${VAR_DIR}"
+        # 文件锁：安装回调与启动流程可能同时准备依赖，并发 pip 会互相拖慢甚至写坏 venv
+        if command -v flock >/dev/null 2>&1; then
+            exec 9>>"${VAR_DIR}/.pip.lock"
+            if ! flock -w 600 9; then
+                log_msg "错误：等待依赖安装锁超时"
+                return 1
+            fi
         fi
-        printf '%s' "${sha}" > "${STAMP_FILE}"
-        log_msg "依赖安装完成"
+        # 拿到锁后复检：依赖可能已被其它进程装好
+        if [ ! -f "${STAMP_FILE}" ] || [ "$(cat "${STAMP_FILE}" 2>/dev/null)" != "${sha}" ]; then
+            log_msg "安装 Python 依赖（包内 wheel 优先，通常几秒完成）..."
+            if ! install_requirements; then
+                log_msg "错误：依赖安装失败，详见 ${LOG_FILE}"
+                return 1
+            fi
+            printf '%s' "${sha}" > "${STAMP_FILE}"
+            log_msg "依赖安装完成"
+        fi
     fi
     return 0
 }

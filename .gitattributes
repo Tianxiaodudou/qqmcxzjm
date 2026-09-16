@@ -2,3 +2,5 @@
 *.PNG binary
 *.fpk binary
 *.tgz binary
+
+*.whl binary
