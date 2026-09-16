@@ -1,0 +1,57 @@
+#!/bin/bash
+#
+# 安装完成后：记录向导配置，并把运行时依赖准备放到后台执行
+#
+set -u
+
+ETC_DIR="${TRIM_PKGETC}"
+VAR_DIR="${TRIM_PKGVAR}"
+LOG_FILE="${VAR_DIR}/info.log"
+REQ_FILE="${TRIM_APPDEST}/requirements.txt"
+PY_RUNTIME_DIR="/var/apps/python312/target/bin"
+BOOTSTRAP_PY="${PY_RUNTIME_DIR}/python3"
+VENV_DIR="${VAR_DIR}/venv"
+
+log_msg() {
+    mkdir -p "${VAR_DIR}" 2>/dev/null
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "${LOG_FILE}"
+}
+
+# 保存向导配置到应用配置目录（由生命周期脚本和 Web 服务读取）
+save_settings() {
+    mkdir -p "${ETC_DIR}" 2>/dev/null
+    {
+        printf 'wizard_download_dir=%s\n' "${wizard_download_dir:-}"
+        printf 'wizard_audio_quality=%s\n' "${wizard_audio_quality:-flac}"
+        printf 'wizard_lyric_trans=%s\n' "${wizard_lyric_trans:-true}"
+    } > "${ETC_DIR}/settings.env"
+    chmod 600 "${ETC_DIR}/settings.env" 2>/dev/null
+}
+
+prepare_runtime() {
+    if [ ! -x "${BOOTSTRAP_PY}" ]; then
+        log_msg "未找到 python312 运行时，跳过依赖预安装"
+        return 0
+    fi
+    mkdir -p "${VAR_DIR}"
+    if [ ! -x "${VENV_DIR}/bin/python" ]; then
+        log_msg "安装阶段：创建虚拟环境"
+        "${BOOTSTRAP_PY}" -m venv "${VENV_DIR}" >> "${LOG_FILE}" 2>&1 || {
+            log_msg "虚拟环境创建失败，将在首次启动时重试"
+            return 0
+        }
+    fi
+    log_msg "安装阶段：预安装 Python 依赖"
+    "${VENV_DIR}/bin/python" -m pip install --disable-pip-version-check --upgrade pip >> "${LOG_FILE}" 2>&1
+    if "${VENV_DIR}/bin/pip" install --disable-pip-version-check -r "${REQ_FILE}" >> "${LOG_FILE}" 2>&1; then
+        sha1sum "${REQ_FILE}" 2>/dev/null | awk '{print $1}' > "${VENV_DIR}/.requirements.sha1"
+        log_msg "依赖预安装完成"
+    else
+        log_msg "依赖预安装失败，将在首次启动时重试"
+    fi
+    return 0
+}
+
+save_settings
+prepare_runtime &
+exit 0

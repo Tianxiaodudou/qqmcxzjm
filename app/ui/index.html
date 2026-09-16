@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>QQ音乐下载器</title>
+  <link rel="stylesheet" href="static/style.css" />
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-logo">♫</span>
+        <div>
+          <div class="brand-name">QQ音乐下载器</div>
+          <div class="brand-sub">v<span id="app-version">1.0.0</span></div>
+        </div>
+      </div>
+
+      <nav class="nav" id="nav">
+        <button class="nav-item active" data-view="home"><span class="ico">🏠</span>首页推荐</button>
+        <button class="nav-item" data-view="search"><span class="ico">🔍</span>搜索</button>
+        <button class="nav-item" data-view="fav"><span class="ico">⭐</span>我的歌单</button>
+        <button class="nav-item" data-view="tasks"><span class="ico">⬇</span>下载任务<span class="badge hidden" id="task-badge">0</span></button>
+        <button class="nav-item" data-view="history"><span class="ico">🕘</span>下载历史</button>
+        <button class="nav-item" data-view="settings"><span class="ico">⚙</span>设置</button>
+      </nav>
+
+      <div class="account">
+        <div class="account-status" id="account-status">
+          <span class="dot offline"></span><span id="account-text">未登录</span>
+        </div>
+        <button class="btn btn-primary btn-block" id="btn-login">登录 QQ 音乐</button>
+        <button class="btn btn-ghost btn-block hidden" id="btn-logout">退出登录</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h1 id="view-title">首页推荐</h1>
+        <div class="topbar-actions" id="topbar-actions"></div>
+      </header>
+
+      <div class="content">
+        <!-- 首页推荐 -->
+        <section class="view active" id="view-home">
+          <div class="section-head">
+            <h2>推荐歌单</h2>
+            <button class="btn btn-ghost" id="btn-reload-recommend">刷新</button>
+          </div>
+          <div class="card-grid" id="recommend-songlists"></div>
+
+          <div class="section-head">
+            <h2>新歌推荐</h2>
+            <div class="bulk-actions">
+              <label class="checkbox"><input type="checkbox" id="newsongs-all" />全选</label>
+              <button class="btn btn-ghost" id="newsongs-invert">反选</button>
+              <button class="btn btn-primary" id="newsongs-download">下载选中</button>
+            </div>
+          </div>
+          <ul class="song-list" id="recommend-newsongs"></ul>
+        </section>
+
+        <!-- 搜索 -->
+        <section class="view" id="view-search">
+          <form class="search-bar" id="search-form">
+            <input type="search" id="search-input" placeholder="搜索歌曲、歌单、歌手…" autocomplete="off" />
+            <select id="search-type">
+              <option value="song">单曲</option>
+              <option value="songlist">歌单</option>
+            </select>
+            <button class="btn btn-primary" type="submit" id="search-submit">搜索</button>
+          </form>
+
+          <div class="bulk-actions hidden" id="search-bulk">
+            <label class="checkbox"><input type="checkbox" id="search-all" />全选</label>
+            <button class="btn btn-ghost" id="search-invert">反选</button>
+            <button class="btn btn-primary" id="search-download">下载选中</button>
+          </div>
+
+          <ul class="song-list" id="search-results"></ul>
+          <div class="card-grid" id="search-songlists"></div>
+          <div class="load-more hidden" id="search-more">
+            <button class="btn btn-ghost" id="btn-search-more">加载更多</button>
+          </div>
+        </section>
+
+        <!-- 我的歌单 -->
+        <section class="view" id="view-fav">
+          <div class="section-head">
+            <h2>我的歌单</h2>
+            <button class="btn btn-ghost" id="btn-reload-fav">刷新</button>
+          </div>
+          <div class="card-grid" id="fav-songlists"></div>
+
+          <div class="section-head"><h2>我喜欢的音乐</h2></div>
+          <div class="bulk-actions" id="fav-bulk">
+            <label class="checkbox"><input type="checkbox" id="fav-all" />全选</label>
+            <button class="btn btn-ghost" id="fav-invert">反选</button>
+            <button class="btn btn-primary" id="fav-download">下载选中</button>
+          </div>
+          <ul class="song-list" id="fav-songs"></ul>
+          <div class="load-more hidden" id="fav-more">
+            <button class="btn btn-ghost" id="btn-fav-more">加载更多</button>
+          </div>
+        </section>
+
+        <!-- 下载任务 -->
+        <section class="view" id="view-tasks">
+          <div class="section-head">
+            <h2>下载任务</h2>
+            <div class="bulk-actions">
+              <span class="muted" id="tasks-summary"></span>
+              <button class="btn btn-ghost" id="btn-tasks-clear-finished">清除已完成</button>
+              <button class="btn btn-ghost" id="btn-tasks-clear-all">清空全部</button>
+            </div>
+          </div>
+          <div class="task-list" id="task-list"></div>
+        </section>
+
+        <!-- 下载历史 -->
+        <section class="view" id="view-history">
+          <div class="section-head">
+            <h2>下载历史</h2>
+            <div class="bulk-actions">
+              <span class="muted" id="history-summary"></span>
+              <button class="btn btn-ghost" id="btn-history-reload">刷新</button>
+              <button class="btn btn-ghost" id="btn-history-clear">清空记录</button>
+            </div>
+          </div>
+          <div class="history-scroll" id="history-scroll">
+            <table class="history-table">
+              <thead>
+                <tr><th>歌名</th><th>歌手</th><th>记录时间</th><th>最终状态</th><th>文件状态</th></tr>
+              </thead>
+              <tbody id="history-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- 设置 -->
+        <section class="view" id="view-settings">
+          <div class="settings-card">
+            <h2>下载设置</h2>
+            <div class="field">
+              <label for="setting-quality">默认音质</label>
+              <select id="setting-quality"></select>
+              <p class="hint">无损/高品质音质会下载加密文件（.mflac/.mgg），可用 qmdec 解密。</p>
+            </div>
+            <div class="field">
+              <label for="setting-lyric-trans">歌词翻译</label>
+              <label class="switch">
+                <input type="checkbox" id="setting-lyric-trans" />
+                <span class="slider"></span>
+              </label>
+              <p class="hint">开启后元数据中同时保存原文与翻译歌词。</p>
+            </div>
+            <div class="field">
+              <label>下载目录</label>
+              <input type="text" id="setting-download-dir" readonly />
+              <p class="hint">下载目录由应用安装向导配置（授权目录）。</p>
+            </div>
+            <div class="field">
+              <label>任务间隔</label>
+              <div class="inline">
+                <input type="number" id="setting-interval-min" min="100" max="5000" step="50" /> <span class="muted">～</span>
+                <input type="number" id="setting-interval-max" min="100" max="8000" step="50" /> <span class="muted">毫秒</span>
+              </div>
+              <p class="hint">每个任务之间随机延时，避免触发风控。</p>
+            </div>
+            <button class="btn btn-primary" id="btn-save-settings">保存设置</button>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- 预览播放器 -->
+  <div class="player hidden" id="player">
+    <img class="player-cover" id="player-cover" alt="" />
+    <div class="player-meta">
+      <div class="player-title" id="player-title">—</div>
+      <div class="player-artist" id="player-artist">—</div>
+    </div>
+    <div class="player-lyric" id="player-lyric">歌词加载中…</div>
+    <div class="player-controls">
+      <audio id="player-audio" controls preload="none"></audio>
+      <button class="btn btn-ghost" id="btn-player-close" title="关闭">✕</button>
+    </div>
+  </div>
+
+  <!-- 登录弹窗 -->
+  <div class="modal hidden" id="modal-login">
+    <div class="modal-card">
+      <header class="modal-head">
+        <h3>登录 QQ 音乐</h3>
+        <button class="icon-btn" data-close="modal-login">✕</button>
+      </header>
+      <div class="tabs" id="login-tabs">
+        <button class="tab active" data-login="qq">QQ 扫码</button>
+        <button class="tab" data-login="wx">微信扫码</button>
+        <button class="tab" data-login="phone">手机验证码</button>
+      </div>
+      <div class="modal-body">
+        <div id="qr-pane">
+          <div class="qr-box">
+            <img id="qr-image" alt="登录二维码" />
+            <div class="qr-mask" id="qr-mask">二维码生成中…</div>
+          </div>
+          <p class="hint" id="qr-hint">请使用手机 QQ / 微信扫码并确认登录</p>
+        </div>
+        <div id="phone-pane" class="hidden">
+          <div class="field">
+            <label for="login-phone">手机号</label>
+            <input type="tel" id="login-phone" placeholder="请输入手机号" />
+          </div>
+          <div class="field">
+            <label for="login-code">验证码</label>
+            <div class="inline">
+              <input type="text" id="login-code" placeholder="6 位验证码" />
+              <button class="btn btn-ghost" id="btn-send-code">获取验证码</button>
+            </div>
+          </div>
+          <button class="btn btn-primary btn-block" id="btn-phone-login">登录</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 歌单详情弹窗 -->
+  <div class="modal hidden" id="modal-songlist">
+    <div class="modal-card modal-wide">
+      <header class="modal-head">
+        <h3 id="songlist-title">歌单</h3>
+        <button class="icon-btn" data-close="modal-songlist">✕</button>
+      </header>
+      <div class="modal-body">
+        <div class="bulk-actions" id="songlist-bulk">
+          <label class="checkbox"><input type="checkbox" id="songlist-all" />全选</label>
+          <button class="btn btn-ghost" id="songlist-invert">反选</button>
+          <button class="btn btn-primary" id="songlist-download">下载选中</button>
+          <span class="muted" id="songlist-count"></span>
+        </div>
+        <ul class="song-list" id="songlist-songs"></ul>
+        <div class="load-more hidden" id="songlist-more">
+          <button class="btn btn-ghost" id="btn-songlist-more">加载更多</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-wrap" id="toast-wrap"></div>
+  <div class="loading hidden" id="global-loading"><div class="spinner"></div></div>
+
+  <script type="module" src="static/app.js"></script>
+</body>
+</html>

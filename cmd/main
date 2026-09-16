@@ -1,0 +1,230 @@
+#!/bin/bash
+#
+# QQ音乐下载器 应用生命周期脚本
+# start / stop / status
+#
+set -u
+
+APP_NAME="qqmusic-downloader"
+GATEWAY_PREFIX="/app/qqmusic-downloader"
+GATEWAY_SOCKET="app.sock"
+
+APP_DIR="${TRIM_APPDEST}"
+VAR_DIR="${TRIM_PKGVAR}"
+ETC_DIR="${TRIM_PKGETC}"
+UI_DIR="${APP_DIR}/ui"
+VENV_DIR="${VAR_DIR}/venv"
+PID_FILE="${VAR_DIR}/app.pid"
+LOG_FILE="${VAR_DIR}/info.log"
+SOCKET_FILE="${APP_DIR}/${GATEWAY_SOCKET}"
+SETTINGS_FILE="${ETC_DIR}/settings.env"
+PY_RUNTIME_DIR="/var/apps/python312/target/bin"
+BOOTSTRAP_PY="${PY_RUNTIME_DIR}/python3"
+REQ_FILE="${APP_DIR}/requirements.txt"
+STAMP_FILE="${VENV_DIR}/.requirements.sha1"
+
+log_msg() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "${LOG_FILE}"
+}
+
+check_process() {
+    local pid="$1"
+    [ -n "${pid}" ] || return 1
+    kill -0 "${pid}" 2>/dev/null
+}
+
+# 确保网关入口声明存在（幂等修复）
+ensure_gateway_config() {
+    local cfg="${UI_DIR}/config"
+    [ -d "${UI_DIR}" ] || return 0
+    if [ -f "${cfg}" ] && grep -q '"gatewaySocket"' "${cfg}" 2>/dev/null \
+        && grep -q "${GATEWAY_PREFIX}" "${cfg}" 2>/dev/null; then
+        return 0
+    fi
+    cat > "${cfg}" <<'JSON'
+{
+    ".url": {
+        "qqmusic-downloader.main": {
+            "title": "QQ音乐下载器",
+            "icon": "images/icon_{0}.png",
+            "type": "iframe",
+            "protocol": "",
+            "gatewayPrefix": "/app/qqmusic-downloader",
+            "gatewaySocket": "app.sock",
+            "url": "/app/qqmusic-downloader",
+            "allUsers": true
+        }
+    }
+}
+JSON
+    log_msg "已修复网关入口配置 ${cfg}"
+}
+
+# 准备运行环境：私有虚拟环境 + 依赖（不打包 venv，不污染系统 Python）
+ensure_runtime() {
+    if [ ! -x "${VENV_DIR}/bin/python" ]; then
+        if [ ! -x "${BOOTSTRAP_PY}" ]; then
+            log_msg "错误：未找到 python312 运行时 ${BOOTSTRAP_PY}，请确认已安装 python312 依赖应用"
+            return 1
+        fi
+        log_msg "创建虚拟环境：${VENV_DIR}"
+        mkdir -p "${VAR_DIR}"
+        "${BOOTSTRAP_PY}" -m venv "${VENV_DIR}" >> "${LOG_FILE}" 2>&1
+        if [ ! -x "${VENV_DIR}/bin/python" ]; then
+            log_msg "错误：虚拟环境创建失败"
+            return 1
+        fi
+    fi
+
+    local sha=""
+    if [ -f "${REQ_FILE}" ]; then
+        sha="$(sha1sum "${REQ_FILE}" 2>/dev/null | awk '{print $1}')"
+        [ -n "${sha}" ] || sha="$(md5sum "${REQ_FILE}" 2>/dev/null | awk '{print $1}')"
+    fi
+
+    if [ ! -f "${STAMP_FILE}" ] || [ "$(cat "${STAMP_FILE}" 2>/dev/null)" != "${sha}" ]; then
+        log_msg "安装 Python 依赖（首次启动可能需要几分钟）..."
+        "${VENV_DIR}/bin/python" -m pip install --disable-pip-version-check --upgrade pip >> "${LOG_FILE}" 2>&1
+        if ! "${VENV_DIR}/bin/pip" install --disable-pip-version-check -r "${REQ_FILE}" >> "${LOG_FILE}" 2>&1; then
+            log_msg "错误：依赖安装失败，详见 ${LOG_FILE}"
+            return 1
+        fi
+        printf '%s' "${sha}" > "${STAMP_FILE}"
+        log_msg "依赖安装完成"
+    fi
+    return 0
+}
+
+# 导出应用配置（向导变量 -> 应用环境变量）
+export_app_env() {
+    export QQMUSIC_DATA_DIR="${VAR_DIR}"
+    export QQMUSIC_UI_DIR="${UI_DIR}"
+    export QQMUSIC_APP_DIR="${APP_DIR}"
+    export QQMUSIC_GATEWAY_PREFIX="${GATEWAY_PREFIX}"
+    export QQMUSIC_SOCKET="${SOCKET_FILE}"
+    export QQMUSIC_APP_VERSION="${TRIM_APPVER:-1.0.0}"
+
+    local media_dir="" quality="" trans=""
+    if [ -f "${SETTINGS_FILE}" ]; then
+        # shellcheck disable=SC1090
+        . "${SETTINGS_FILE}"
+    fi
+    [ -n "${wizard_download_dir:-}" ] && media_dir="${wizard_download_dir}"
+    [ -n "${wizard_audio_quality:-}" ] && quality="${wizard_audio_quality}"
+    [ -n "${wizard_lyric_trans:-}" ] && trans="${wizard_lyric_trans}"
+
+    export QQMUSIC_MEDIA_DIR="${media_dir}"
+    export QQMUSIC_QUALITY="${quality:-flac}"
+    export QQMUSIC_LYRIC_TRANS="${trans:-true}"
+    export QQMUSIC_AUTHORIZED_PATHS="${TRIM_DATA_ACCESSIBLE_PATHS:-}"
+}
+
+is_running() {
+    local pid=""
+    [ -f "${PID_FILE}" ] || return 1
+    pid="$(head -n 1 "${PID_FILE}" 2>/dev/null | tr -d '[:space:]')"
+    check_process "${pid}" || return 1
+    return 0
+}
+
+status() {
+    local pid=""
+    if [ -f "${PID_FILE}" ]; then
+        pid="$(head -n 1 "${PID_FILE}" 2>/dev/null | tr -d '[:space:]')"
+        if ! check_process "${pid}"; then
+            rm -f "${PID_FILE}"
+            log_msg "清理失效的 PID 文件"
+            return 1
+        fi
+    else
+        return 1
+    fi
+    # 进程存活之外，还要确认网关 Socket 真正在监听
+    if [ ! -S "${SOCKET_FILE}" ]; then
+        return 1
+    fi
+    return 0
+}
+
+start_process() {
+    if is_running && [ -S "${SOCKET_FILE}" ]; then
+        return 0
+    fi
+
+    ensure_gateway_config
+
+    if [ -S "${SOCKET_FILE}" ]; then
+        rm -f "${SOCKET_FILE}"
+    fi
+
+    if ! ensure_runtime; then
+        return 1
+    fi
+
+    export_app_env
+
+    log_msg "启动 uvicorn（Unix Socket：${SOCKET_FILE}）"
+    cd "${APP_DIR}" || return 1
+    PYTHONPATH="${APP_DIR}" nohup "${VENV_DIR}/bin/python" -m uvicorn \
+        web.main:app \
+        --uds "${SOCKET_FILE}" \
+        --log-level info >> "${LOG_FILE}" 2>&1 &
+    printf '%s' "$!" > "${PID_FILE}"
+
+    local count=0
+    while [ ${count} -lt 40 ]; do
+        if status; then
+            log_msg "启动成功 pid=$!"
+            return 0
+        fi
+        sleep 1
+        count=$((count + 1))
+    done
+    log_msg "启动超时，请查看 ${LOG_FILE}"
+    return 1
+}
+
+stop_process() {
+    log_msg "停止服务"
+    if [ -f "${PID_FILE}" ]; then
+        local pid=""
+        pid="$(head -n 1 "${PID_FILE}" 2>/dev/null | tr -d '[:space:]')"
+        if check_process "${pid}"; then
+            kill -TERM "${pid}" >> "${LOG_FILE}" 2>&1
+            local count=0
+            while check_process "${pid}" && [ ${count} -lt 15 ]; do
+                sleep 1
+                count=$((count + 1))
+            done
+            if check_process "${pid}"; then
+                log_msg "强制结束进程 ${pid}"
+                kill -KILL "${pid}" >> "${LOG_FILE}" 2>&1
+                sleep 1
+            fi
+        fi
+        rm -f "${PID_FILE}"
+    fi
+    [ -S "${SOCKET_FILE}" ] && rm -f "${SOCKET_FILE}"
+    return 0
+}
+
+case "${1:-}" in
+start)
+    start_process
+    exit $?
+    ;;
+stop)
+    stop_process
+    exit 0
+    ;;
+status)
+    if status; then
+        exit 0
+    else
+        exit 3
+    fi
+    ;;
+*)
+    exit 1
+    ;;
+esac

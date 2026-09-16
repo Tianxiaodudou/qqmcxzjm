@@ -1,0 +1,41 @@
+[
+  {
+    "stepTitle": "下载设置",
+    "items": [
+      {
+        "type": "text",
+        "field": "wizard_download_dir",
+        "label": "下载目录",
+        "initValue": "/vol1/music",
+        "rules": [
+          {
+            "required": true,
+            "message": "请填写下载目录"
+          },
+          {
+            "pattern": "^/[^/].*",
+            "message": "请填写以 / 开头的绝对路径"
+          }
+        ]
+      },
+      {
+        "type": "text",
+        "field": "wizard_audio_quality",
+        "label": "下载音质",
+        "initValue": "flac",
+        "rules": [
+          {
+            "pattern": "^(flac|mp3_320|mp3_128)$",
+            "message": "可填 flac、mp3_320 或 mp3_128"
+          }
+        ]
+      },
+      {
+        "type": "switch",
+        "field": "wizard_lyric_trans",
+        "label": "保存歌词翻译",
+        "initValue": "true"
+      }
+    ]
+  }
+]

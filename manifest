@@ -1,0 +1,15 @@
+appname               = qqmusic-downloader
+version               = 1.0.0
+display_name          = QQ音乐下载器
+desc                  = 基于 QQMusicApi 的 QQ 音乐下载器。支持 QQ / 微信 / QQ音乐 App 扫码登录与手机验证码登录，浏览推荐歌单与私有歌单、搜索单曲，边听边看同步歌词，并将加密音频与元数据（歌名、歌手、歌词、封面）下载到指定目录。
+platform              = all
+source                = thirdparty
+maintainer            = qqmusic-downloader contributors
+distributor           = qqmusic-downloader contributors
+os_min_version        = 1.2.0
+install_dep_apps      = python312
+desktop_uidir         = ui
+desktop_applaunchname = qqmusic-downloader.main
+ctl_stop              = true
+checkport             = false
+changelog             = 1.0.0 首次发布：三种登录方式、推荐/私有歌单、单曲搜索、同步歌词预览播放器、下载任务（音频+元数据双进度条）、歌词翻译开关、下载历史。

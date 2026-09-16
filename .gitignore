@@ -1,0 +1,19 @@
+# 构建产物
+*.fpk
+app.tgz
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+env/
+
+# 运行时数据
+app/var/
+var/
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

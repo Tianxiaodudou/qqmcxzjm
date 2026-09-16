@@ -1,0 +1,16 @@
+#!/bin/bash
+#
+# 应用设置页保存后：更新配置文件并重启服务使其生效
+#
+set -u
+
+ETC_DIR="${TRIM_PKGETC}"
+mkdir -p "${ETC_DIR}" 2>/dev/null
+{
+    printf 'wizard_download_dir=%s\n' "${wizard_download_dir:-}"
+    printf 'wizard_audio_quality=%s\n' "${wizard_audio_quality:-flac}"
+    printf 'wizard_lyric_trans=%s\n' "${wizard_lyric_trans:-true}"
+} > "${ETC_DIR}/settings.env"
+chmod 600 "${ETC_DIR}/settings.env" 2>/dev/null
+
+exit 0

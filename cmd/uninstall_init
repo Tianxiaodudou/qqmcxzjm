@@ -1,0 +1,26 @@
+#!/bin/bash
+#
+# 卸载前：停止应用服务并清理运行时数据
+#
+set -u
+
+VAR_DIR="${TRIM_PKGVAR}"
+PID_FILE="${VAR_DIR}/app.pid"
+SOCKET_FILE="${TRIM_APPDEST}/app.sock"
+
+if [ -f "${PID_FILE}" ]; then
+    pid="$(head -n 1 "${PID_FILE}" 2>/dev/null | tr -d '[:space:]')"
+    if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
+        kill -TERM "${pid}" 2>/dev/null
+        count=0
+        while kill -0 "${pid}" 2>/dev/null && [ ${count} -lt 10 ]; do
+            sleep 1
+            count=$((count + 1))
+        done
+        kill -0 "${pid}" 2>/dev/null && kill -KILL "${pid}" 2>/dev/null
+    fi
+    rm -f "${PID_FILE}"
+fi
+[ -S "${SOCKET_FILE}" ] && rm -f "${SOCKET_FILE}"
+
+exit 0

@@ -1,0 +1,12 @@
+# QQ音乐下载器 —— 应用运行时依赖
+# 这些依赖会在应用启动时安装到 $TRIM_PKGVAR/venv 的私有虚拟环境中
+fastapi==0.115.6
+uvicorn==0.34.0
+httpx==0.28.1
+pydantic>=2.9,<3
+orjson>=3.10
+jsonpath-ng>=1.7
+cryptography>=43.0
+niquests>=3.11
+paho-mqtt>=2.1
+typing-extensions>=4.12
