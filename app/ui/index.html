@@ -64,13 +64,16 @@
         <!-- 搜索 -->
         <section class="view" id="view-search">
           <form class="search-bar" id="search-form">
-            <input type="search" id="search-input" placeholder="搜索歌曲、歌单、歌手…" autocomplete="off" />
+            <input type="search" id="search-input" placeholder="搜歌名/歌手；歌单选「歌单」后输入歌单名称，或直接粘贴歌单链接/ID" autocomplete="off" />
             <select id="search-type">
               <option value="song">单曲</option>
               <option value="songlist">歌单</option>
             </select>
             <button class="btn btn-primary" type="submit" id="search-submit">搜索</button>
           </form>
+          <p class="search-hint">
+            <b>歌单怎么搜？</b>① 类型选「歌单」，输入<b>歌单名称</b>（如「周杰伦」）→ 搜出相关歌单，点卡片打开；② 或者直接粘贴<b>歌单链接</b>（如 https://y.qq.com/n/ryqq/playlist/7084236757 ）或 <b>歌单ID</b>（如 7084236757），回车直接打开该歌单。
+          </p>
 
           <div class="bulk-actions hidden" id="search-bulk">
             <label class="checkbox"><input type="checkbox" id="search-all" />全选</label>

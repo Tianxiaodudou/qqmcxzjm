@@ -28,11 +28,12 @@ const state = {
   loggedIn: false,
   home: { songlists: [], newsongs: [], loading: false, sel: new Set() },
   search: { keyword: '', type: 'song', page: 1, items: [], songlists: [], sel: new Set(), loading: false, hasMore: false },
-  fav: { songlists: [], songs: [], page: 1, sel: new Set(), loading: false, hasMore: false },
+  fav: { songlists: [], songs: [], page: 1, sel: new Set(), loading: false, hasMore: false, loadedAt: 0 },
   songlist: { id: 0, info: {}, songs: [], page: 1, sel: new Set(), hasMore: false, loading: false },
   tasks: { items: [], counts: {}, timer: null },
-  history: { items: [], record: new Map(), cache: new Map(), observer: null, timer: null },
+  history: { items: [], record: new Map(), cache: new Map(), observer: null, timer: null, total: 0, loadedAt: 0 },
   settings: {},
+  settingsLoadedAt: 0,
   qualities: [],
   login: { mode: '', sessionId: '', busy: false, timer: null },
   player: { songmid: '', lyrics: [], index: -1, timer: null, ready: false },
@@ -150,6 +151,7 @@ async function withLoading(fn) {
 
 /* ---------------- 登录态 ---------------- */
 function setLoggedIn(loggedIn) {
+  const was = state.loggedIn;
   state.loggedIn = !!loggedIn;
   const dot = $('#account-status .dot');
   dot.classList.toggle('online', state.loggedIn);
@@ -157,6 +159,19 @@ function setLoggedIn(loggedIn) {
   $('#account-text').textContent = state.loggedIn ? '已登录' : '未登录';
   $('#btn-login').classList.toggle('hidden', state.loggedIn);
   $('#btn-logout').classList.toggle('hidden', !state.loggedIn);
+  if (!was && state.loggedIn) schedulePrefetch();   // 刚登录：空闲时预取各页数据
+}
+
+/** 闲时预加载：把「切页才开始请求」变成「切页直接显示」 */
+function schedulePrefetch() {
+  const run = () => {
+    if (!state.loggedIn) return;
+    loadFav({ background: true });        // 我的歌单
+    loadHistory({ background: true });    // 下载历史
+    loadSettings({ background: true });   // 设置（含已授权目录）
+  };
+  if (window.requestIdleCallback) window.requestIdleCallback(run, { timeout: 3000 });
+  else setTimeout(run, 1200);
 }
 
 async function refreshLoginStatus() {
@@ -232,7 +247,7 @@ function renderSonglistCards(container, songlists, emptyText = '暂无歌单') {
   container.innerHTML = songlists
     .map((item) => `
       <div class="songlist-card" data-songlist="${item.id}">
-        <div class="cover" style="background-image:url('${esc(songlistCover(item.picurl))}')">
+        <div class="cover" data-cover="${esc(songlistCover(item.picurl))}">
           ${item.listennum ? `<span class="play-count">▶ ${fmtListen(item.listennum)}</span>` : ''}
         </div>
         <div class="meta">
@@ -241,6 +256,35 @@ function renderSonglistCards(container, songlists, emptyText = '暂无歌单') {
         </div>
       </div>`)
     .join('');
+  hydrateCovers(container);
+}
+
+/* 可见区域预加载：视口附近（±300px）的封面立即加载，离得远的等滚动到再请求，
+   这样首屏只拉当前可见的图，滚动时又不会看到空白 */
+let coverObserver = null;
+function hydrateCovers(root) {
+  const nodes = $$('[data-cover]', root || document);
+  if (!nodes.length) return;
+  if (typeof IntersectionObserver === 'undefined') {
+    nodes.forEach((el) => applyCover(el));
+    return;
+  }
+  if (!coverObserver) {
+    coverObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        applyCover(entry.target);
+        coverObserver.unobserve(entry.target);
+      });
+    }, { rootMargin: '300px 0px' });
+  }
+  nodes.forEach((el) => coverObserver.observe(el));
+}
+
+function applyCover(el) {
+  const url = el.getAttribute('data-cover') || '';
+  if (url) el.style.backgroundImage = `url('${url}')`;
+  el.removeAttribute('data-cover');
 }
 
 function fmtListen(num) {
@@ -350,11 +394,33 @@ async function loadHome() {
 }
 
 /* ---------------- 搜索 ---------------- */
+/* 从输入里识别歌单 ID：支持 y.qq.com 歌单链接、id/disstid 参数、纯数字 ID */
+function extractSonglistId(text) {
+  const raw = String(text || '').trim();
+  if (!raw) return '';
+  const hit =
+    raw.match(/playlist\/(\d{5,})/) ||
+    raw.match(/[?&](?:id|disstid|dissid)=(\d{5,})/) ||
+    raw.match(/^(\d{5,})$/);
+  return hit ? hit[1] : '';
+}
+
+function looksLikePlaylistLink(text) {
+  return /y\.qq\.com|playlist|disstid|[?&]id=/i.test(String(text || ''));
+}
+
 async function loadSearch({ reset = false } = {}) {
   const keyword = $('#search-input').value.trim();
   const type = $('#search-type').value || 'song';
   if (!keyword) {
     toast('请输入搜索关键词', 'warn');
+    return;
+  }
+  // 粘贴了歌单链接/ID（歌单类型下）→ 直接打开歌单，比名称搜索更精准
+  const listId = extractSonglistId(keyword);
+  if (listId && (looksLikePlaylistLink(keyword) || type === 'songlist')) {
+    toast(`正在打开歌单 ${listId}`, 'success');
+    openSonglistDetail(listId, '');
     return;
   }
   if (reset) {
@@ -395,16 +461,24 @@ async function loadSearch({ reset = false } = {}) {
 }
 
 /* ---------------- 我的歌单（收藏） ---------------- */
-async function loadFav() {
+async function loadFav({ force = false, background = false } = {}) {
   if (!state.loggedIn) {
     $('#fav-songlists').innerHTML = '<div class="empty">请先登录</div>';
     renderSongList($('#fav-songs'), [], state.fav.sel, '请先登录');
     $('#fav-more').classList.add('hidden');
     return;
   }
+  // 缓存优先：已有数据立即渲染（切页秒开），过期数据后台静默刷新
+  if (!force && !background && state.fav.loadedAt) {
+    renderFav();
+    if (Date.now() - state.fav.loadedAt > 60000) loadFav({ force: true, background: true });
+    return;
+  }
   state.fav.loading = true;
-  $('#fav-songlists').innerHTML = '<div class="empty">加载中…</div>';
-  renderSongSkeleton($('#fav-songs'));
+  if (!background) {
+    $('#fav-songlists').innerHTML = '<div class="empty">加载中…</div>';
+    renderSongSkeleton($('#fav-songs'));
+  }
   try {
     const [lists, songs] = await Promise.all([
       api('/user/songlists'),
@@ -413,18 +487,26 @@ async function loadFav() {
     state.fav.songlists = lists.items || [];
     state.fav.songs = songs.items || [];
     state.fav.page = 1;
-    renderSonglistCards($('#fav-songlists'), state.fav.songlists, '暂无收藏歌单');
-    renderSongList($('#fav-songs'), state.fav.songs, state.fav.sel, '暂无收藏歌曲');
     state.fav.hasMore = state.fav.songs.length >= 30;
-    $('#fav-more').classList.toggle('hidden', !state.fav.hasMore);
-    updateBulkBar($('#fav-all'), $('#fav-invert'), null, state.fav.sel, state.fav.songs);
+    state.fav.loadedAt = Date.now();
+    renderFav();
   } catch (err) {
+    if (background) return;
     handleError(err, { silent: err.code === 'not_logged_in' });
     $('#fav-songlists').innerHTML = '<div class="empty">加载失败</div>';
     renderSongList($('#fav-songs'), [], state.fav.sel, '加载失败');
   } finally {
     state.fav.loading = false;
   }
+}
+
+/** 用 state.fav 渲染收藏页 */
+function renderFav() {
+  renderSonglistCards($('#fav-songlists'), state.fav.songlists, '暂无收藏歌单');
+  renderSongList($('#fav-songs'), state.fav.songs, state.fav.sel, '暂无收藏歌曲');
+  $('#fav-more').classList.toggle('hidden', !state.fav.hasMore);
+  updateBulkBar($('#fav-all'), $('#fav-invert'), null, state.fav.sel, state.fav.songs);
+  hydrateCovers($('#fav-songlists'));
 }
 
 async function loadMoreFav() {
@@ -1042,15 +1124,44 @@ async function retryTask(taskId) {
   }
 }
 
-async function clearTasks() {
-  if (!window.confirm('确定清空已完成的任务记录吗？')) return;
+/** 按钮瞬时反馈：禁用 + 文案替换（替代全屏 loading，点下去立刻有反应） */
+function setBtnBusy(btn, busy, busyText = '处理中…') {
+  if (!btn) return;
+  if (busy) {
+    if (!btn.dataset.originText) btn.dataset.originText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = busyText;
+  } else {
+    btn.disabled = false;
+    if (btn.dataset.originText) btn.textContent = btn.dataset.originText;
+  }
+}
+
+async function clearTasks(scope = 'finished') {
+  const all = scope === 'all';
+  const btn = $(all ? '#btn-tasks-clear-all' : '#btn-tasks-clear-finished');
+  const running = (state.tasks.items || []).filter((t) => t.status === 'downloading').length;
+  const tip = all
+    ? (running ? `确定清空全部任务记录吗？\n（${running} 个正在进行的任务会保留）` : '确定清空全部任务记录吗？')
+    : '确定清除已完成的任务记录吗？\n（失败/中断的任务会保留，方便你重试）';
+  if (!window.confirm(tip)) return;
+  setBtnBusy(btn, true, '清理中…');
+  const backup = state.tasks.items || [];
+  // 乐观更新：本地先移除，界面立刻干净，不再等接口回来
+  state.tasks.items = backup.filter((t) => (all ? t.status === 'downloading' : t.status !== 'success'));
+  renderTasks();
   try {
-    const data = await withLoading(() => api('/tasks/clear', { method: 'POST', query: { scope: 'finished' } }));
-    toast(`已清理 ${data.removed || 0} 条完成记录`, 'success');
+    const data = await api('/tasks/clear', { method: 'POST', query: { scope } });
+    const extra = data.kept ? `（${data.kept} 个进行中的任务已保留）` : '';
+    toast(`已清理 ${data.removed || 0} 条记录${extra}`, 'success');
     await refreshTasks();
     updateTaskBadge();
   } catch (err) {
+    state.tasks.items = backup;
+    renderTasks();
     handleError(err);
+  } finally {
+    setBtnBusy(btn, false);
   }
 }
 
@@ -1070,24 +1181,40 @@ function historyRowHtml(item) {
     </tr>`;
 }
 
-async function loadHistory() {
+async function loadHistory({ force = false, background = false } = {}) {
   const box = $('#history-body');
-  box.innerHTML = '<tr><td colspan="5" class="empty">加载中…</td></tr>';
+  // 缓存优先：已有数据立即渲染（切页秒开），过期数据后台静默刷新
+  if (!force && !background && state.history.loadedAt) {
+    renderHistory();
+    if (Date.now() - state.history.loadedAt > 60000) loadHistory({ force: true, background: true });
+    return;
+  }
+  if (!background) box.innerHTML = '<tr><td colspan="5" class="empty">加载中…</td></tr>';
   try {
     const data = await api('/history');
     state.history.items = data.items || [];
-    state.history.record.clear();
-    $('#history-summary').textContent = state.history.items.length ? `共 ${data.total || state.history.items.length} 条记录` : '';
-    if (!state.history.items.length) {
-      box.innerHTML = '<tr><td colspan="5" class="empty">暂无下载历史</td></tr>';
-      return;
-    }
-    box.innerHTML = state.history.items.map(historyRowHtml).join('');
-    observeHistoryRows();
+    state.history.total = data.total || state.history.items.length;
+    state.history.loadedAt = Date.now();
+    renderHistory();
   } catch (err) {
+    if (background) return;
     handleError(err);
     box.innerHTML = '<tr><td colspan="5" class="empty">加载失败</td></tr>';
   }
+}
+
+/** 用 state.history.items 渲染历史表格 */
+function renderHistory() {
+  const box = $('#history-body');
+  state.history.record.clear();
+  const total = state.history.total || state.history.items.length;
+  $('#history-summary').textContent = state.history.items.length ? `共 ${total} 条记录` : '';
+  if (!state.history.items.length) {
+    box.innerHTML = '<tr><td colspan="5" class="empty">暂无下载历史</td></tr>';
+    return;
+  }
+  box.innerHTML = state.history.items.map(historyRowHtml).join('');
+  observeHistoryRows();
 }
 
 /** 只检查可见行的文件状态，避免全量扫描磁盘 */
@@ -1146,31 +1273,55 @@ function renderFileState(cell, value) {
 }
 
 async function clearHistory() {
-  if (!window.confirm('确定清空下载历史吗？（不影响已下载文件）')) return;
+  if (!window.confirm('确定清空下载历史吗？\n（不影响已下载文件，清空前会自动备份到 history.json.bak）')) return;
+  const btn = $('#btn-history-clear');
+  setBtnBusy(btn, true, '清理中…');
+  const backup = state.history.items || [];
+  // 乐观更新：表格立刻清空，配合后端 12ms 的响应基本无感
+  state.history.items = [];
+  state.history.total = 0;
+  renderHistory();
   try {
-    await withLoading(() => api('/history/clear', { method: 'POST' }));
+    await api('/history/clear', { method: 'POST' });
+    state.history.loadedAt = Date.now();
     toast('历史已清空', 'success');
-    await loadHistory();
   } catch (err) {
+    state.history.items = backup;
+    state.history.total = backup.length;
+    renderHistory();
     handleError(err);
+  } finally {
+    setBtnBusy(btn, false);
   }
 }
 
 /* ---------------- 设置 ---------------- */
-async function loadSettings() {
+async function loadSettings({ force = false, background = false } = {}) {
+  // 缓存优先：已有数据就立即渲染（切页秒开），仅在后台静默刷新过期数据
+  if (!force && !background && state.settingsLoadedAt) {
+    applySettings();
+    if (Date.now() - state.settingsLoadedAt > 120000) loadSettings({ force: true, background: true });
+    return;
+  }
   try {
     const data = await api('/settings');
     state.settings = data.settings || {};
     state.authorizedDirs = data.authorized_dirs || [];
     state.authorizedHint = data.authorized_hint || '';
-    const s = state.settings;
-    $('#setting-lyric-trans').checked = !!s.lyric_trans;
-    renderDirOptions();
-    $('#setting-interval-min').value = s.interval_min_ms || 300;
-    $('#setting-interval-max').value = s.interval_max_ms || 800;
+    state.settingsLoadedAt = Date.now();
+    applySettings();
   } catch (err) {
-    handleError(err);
+    if (!background) handleError(err);
   }
+}
+
+/** 用已有的 state.settings 渲染设置页（缓存命中时直接调用，不再发请求） */
+function applySettings() {
+  const s = state.settings || {};
+  $('#setting-lyric-trans').checked = !!s.lyric_trans;
+  renderDirOptions();
+  $('#setting-interval-min').value = s.interval_min_ms || 300;
+  $('#setting-interval-max').value = s.interval_max_ms || 800;
 }
 
 /* 下载目录 = 已授权目录列表（选择与授权合并为一处） */
@@ -1206,10 +1357,10 @@ async function saveDownloadDirFromSelect() {
     const data = await withLoading(() => api('/settings', { method: 'POST', body: { download_dir: value } }));
     state.settings = data.settings || state.settings;
     toast('下载目录已更新', 'success');
-    await loadSettings();
+    await loadSettings({ force: true });
   } catch (err) {
     handleError(err);
-    await loadSettings();
+    await loadSettings({ force: true });
   }
 }
 
@@ -1434,8 +1585,8 @@ function bindEvents() {
 
   bindSonglistCards($('#search-songlists'));
 
-  on('#btn-tasks-clear-finished', 'click', clearTasks);
-  on('#btn-tasks-clear-all', 'click', clearTasks);
+  on('#btn-tasks-clear-finished', 'click', () => clearTasks('finished'));
+  on('#btn-tasks-clear-all', 'click', () => clearTasks('all'));
 
   on('#btn-history-reload', 'click', loadHistory);
   on('#btn-history-clear', 'click', clearHistory);

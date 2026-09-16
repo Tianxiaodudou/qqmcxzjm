@@ -157,7 +157,11 @@ def append_history(item: dict[str, Any]) -> None:
 
 
 def clear_history() -> None:
+    """清空历史记录：先把现有记录备份到 history.bak.json，避免误清无法找回。"""
     with _LOCK:
+        current = _read_json(env.HISTORY_FILE, [])
+        if isinstance(current, list) and current:
+            _write_json(env.HISTORY_FILE.with_suffix(".json.bak"), current, 0o600)
         _write_json(env.HISTORY_FILE, [], 0o600)
 
 

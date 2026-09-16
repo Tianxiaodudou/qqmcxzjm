@@ -6,6 +6,7 @@ import asyncio
 import base64
 import logging
 import random
+import re
 import time
 import uuid
 from typing import Any, Awaitable, Callable, TypeVar
@@ -24,6 +25,14 @@ T = TypeVar("T")
 
 _QR_TYPES = {"qq": QRLoginType.QQ, "wx": QRLoginType.WX, "mobile": QRLoginType.MOBILE}
 _SESSION_TTL = 300
+_HTML_TAG_RE = re.compile(r"<[^>]{0,40}>")
+
+
+def clean_text(value: Any) -> str:
+    """清理上游返回文本：去掉搜索高亮标签（<em>）与多余空白。"""
+    text = str(value if value is not None else "")
+    text = _HTML_TAG_RE.sub("", text)
+    return text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"').strip()
 
 
 class QQService:
@@ -289,17 +298,17 @@ class QQService:
     def songlist_summary(self, item: Any) -> dict[str, Any]:
         return {
             "id": self._to_int(self._field(item, "id", "dissid", "tid", default=0)),
-            "title": str(self._field(item, "title", "name", "dissname", "dirName")),
+            "title": clean_text(self._field(item, "title", "name", "dissname", "dirName")),
             "picurl": str(self._field(item, "picurl", "cover", "logo", "pic")),
             "songnum": self._to_int(self._field(item, "songnum", "songNum", "song_cnt", default=0)),
             "listennum": self._to_int(self._field(item, "listennum", "listen_num", default=0)),
-            "creator": str(self._field(item, "nickname", "creator", "username")),
+            "creator": clean_text(self._field(item, "nickname", "creator", "username")),
         }
 
     def singer_summary(self, item: Any) -> dict[str, Any]:
         return {
             "singer_mid": str(self._field(item, "mid", "singer_mid")),
-            "name": str(self._field(item, "name", "singer_name", "title")),
+            "name": clean_text(self._field(item, "name", "singer_name", "title")),
             "pmid": str(self._field(item, "pmid")),
         }
 

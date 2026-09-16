@@ -24,6 +24,7 @@ DOWNLOADING = "downloading"
 DONE = "done"
 FAILED = "failed"
 SKIPPED = "skipped"
+TASK_SUCCESS = "success"
 
 # 四个阶段：前端按此顺序渲染进度条
 STAGES: tuple[tuple[str, str], ...] = (
@@ -94,7 +95,7 @@ class DownloadTask:
         if FAILED in values:
             self.status = FAILED
         elif all(s in (DONE, SKIPPED) for s in values):
-            self.status = "success"
+            self.status = TASK_SUCCESS
         else:
             self.status = DOWNLOADING
         self.touch()
@@ -211,11 +212,21 @@ class DownloadManager:
         self._save()
         return task
 
-    def clear_finished(self) -> int:
-        keep = [tid for tid, t in self._tasks.items() if t.status == DOWNLOADING]
-        removed = len(self._tasks) - len(keep)
+    def clear_finished(self, include_failed: bool = True) -> int:
+        """清理任务记录。
+
+        include_failed=True：保留「运行中」的任务，其余（成功/失败/中断）全部清除 → 「清空全部」
+        include_failed=False：只清除已完成（success）的记录，失败/中断的保留下来便于重试 → 「清除已完成」
+        """
+        def keep(t: DownloadTask) -> bool:
+            if t.status == DOWNLOADING:
+                return True
+            return (not include_failed) and t.status != TASK_SUCCESS
+
+        keep_ids = [tid for tid, t in self._tasks.items() if keep(t)]
+        removed = len(self._tasks) - len(keep_ids)
         for tid in list(self._tasks):
-            if tid not in keep:
+            if tid not in keep_ids:
                 del self._tasks[tid]
                 self._cleanup_work(tid)
         self._order = [tid for tid in self._order if tid in self._tasks]

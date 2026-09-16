@@ -143,10 +143,12 @@ async def retry_task(task_id: str) -> dict[str, Any]:
 
 @router.post("/tasks/clear")
 async def clear_tasks(scope: str = Query("finished")) -> dict[str, Any]:
-    if scope not in ("finished",):
+    """scope=finished 只清除已完成记录；scope=all 清除全部（运行中的任务会保留）。"""
+    if scope not in ("finished", "all"):
         raise errors.BadRequestError("不支持的清理范围")
-    removed = manager.clear_finished()
-    return {"ok": True, "removed": removed}
+    removed = manager.clear_finished(include_failed=(scope == "all"))
+    kept = sum(1 for t in manager.list_tasks() if t.get("status") == "downloading")
+    return {"ok": True, "removed": removed, "kept": kept}
 
 
 # --------------------------------------------------------------------------
