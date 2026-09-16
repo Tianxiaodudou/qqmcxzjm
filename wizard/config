@@ -3,20 +3,8 @@
     "stepTitle": "下载设置",
     "items": [
       {
-        "type": "text",
-        "field": "wizard_download_dir",
-        "label": "下载目录",
-        "initValue": "/vol1/music",
-        "rules": [
-          {
-            "required": true,
-            "message": "请填写下载目录"
-          },
-          {
-            "pattern": "^/[^/].*",
-            "message": "请填写以 / 开头的绝对路径"
-          }
-        ]
+        "type": "tips",
+        "helpText": "下载目录请在应用主页的“设置 → 下载目录”中点选文件夹完成（选择即授权飞牛文件夹访问权限，二者已合并，无需在此手填路径）。"
       },
       {
         "type": "text",

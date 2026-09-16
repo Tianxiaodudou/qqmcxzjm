@@ -4,23 +4,7 @@
     "items": [
       {
         "type": "tips",
-        "helpText": "安装完成后，请在应用主页的“设置”中点击“选择下载目录”完成目录授权。此处填写的目录将作为默认下载位置。"
-      },
-      {
-        "type": "text",
-        "field": "wizard_download_dir",
-        "label": "下载目录",
-        "initValue": "/vol1/music",
-        "rules": [
-          {
-            "required": true,
-            "message": "请填写下载目录"
-          },
-          {
-            "pattern": "^/[^/].*",
-            "message": "请填写以 / 开头的绝对路径"
-          }
-        ]
+        "helpText": "下载目录与文件夹访问权限已合并：安装完成后打开应用，在“设置 → 下载目录”里点选一个文件夹即可，选择的同时就完成了飞牛文件夹授权（trim.file.userAccess），无需再单独配置访问权限，也无法在此处手填路径。"
       },
       {
         "type": "text",

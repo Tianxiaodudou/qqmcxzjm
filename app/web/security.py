@@ -83,15 +83,21 @@ def resolve_within(base: Path, name: str) -> Path:
     return target
 
 
-def is_authorized_dir(path: Path) -> bool:
-    """判断目录是否位于用户授权范围内。"""
+def is_authorized_dir(path: Path, extra: list[str] | None = None) -> bool:
+    """判断目录是否位于授权范围内。
+
+    extra 为运行时查询到的授权目录（飞牛 trim.file.userAccess / sharedAccess），
+    与启动时注入的 env.AUTHORIZED_PATHS 取并集。
+    """
     try:
         target = path.resolve()
     except OSError:
         return False
-    if not env.AUTHORIZED_PATHS:
+    candidates = [raw for raw in env.AUTHORIZED_PATHS if raw]
+    candidates += [raw for raw in (extra or []) if raw]
+    if not candidates:
         return False
-    for raw in env.AUTHORIZED_PATHS:
+    for raw in candidates:
         try:
             allowed = Path(raw).resolve()
         except OSError:

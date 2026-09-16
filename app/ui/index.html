@@ -156,12 +156,12 @@
               <p class="hint">开启后元数据中同时保存原文与翻译歌词。</p>
             </div>
             <div class="field">
-              <label>下载目录</label>
+              <label for="setting-download-dir">下载目录（同时就是文件夹访问权限）</label>
               <div class="inline">
-                <input type="text" id="setting-download-dir" readonly />
-                <button class="btn btn-ghost" id="btn-choose-dir">选择目录</button>
+                <select id="setting-download-dir"></select>
+                <button class="btn btn-ghost" id="btn-choose-dir">选择文件夹…</button>
               </div>
-              <p class="hint">点击「选择目录」通过飞牛文件授权（trim.file.userAccess）选择下载目录，也可在安装向导中配置。</p>
+              <p class="hint" id="dir-hint">点「选择文件夹…」在飞牛内嵌文件夹选择器中点选一个文件夹：选择的同时即完成授权（trim.file.userAccess），下载目录与访问权限一步到位，无需再单独配置。</p>
             </div>
             <div class="field">
               <label>任务间隔</label>

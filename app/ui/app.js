@@ -947,15 +947,57 @@ async function loadSettings() {
     const data = await api('/settings');
     state.settings = data.settings || {};
     state.qualities = data.qualities || [];
+    state.authorizedDirs = data.authorized_dirs || [];
+    state.authorizedHint = data.authorized_hint || '';
     fillQualityOptions();
     const s = state.settings;
     $('#setting-quality').value = s.quality || '';
     $('#setting-lyric-trans').checked = !!s.lyric_trans;
-    $('#setting-download-dir').value = s.download_dir || '';
+    renderDirOptions();
     $('#setting-interval-min').value = s.interval_min_ms || 300;
     $('#setting-interval-max').value = s.interval_max_ms || 800;
   } catch (err) {
     handleError(err);
+  }
+}
+
+/* 下载目录 = 已授权目录列表（选择与授权合并为一处） */
+function renderDirOptions() {
+  const select = $('#setting-download-dir');
+  if (!select) return;
+  const authorized = state.authorizedDirs || [];
+  const current = (state.settings && state.settings.download_dir) || '';
+  const dirs = authorized.slice();
+  if (current && dirs.indexOf(current) === -1) dirs.unshift(current);
+  select.innerHTML = dirs
+    .map((dir) => {
+      const label = authorized.indexOf(dir) === -1 ? `${dir}（默认目录·未授权）` : dir;
+      return `<option value="${esc(dir)}">${esc(label)}</option>`;
+    })
+    .join('');
+  select.value = current || (dirs[0] || '');
+  const hint = $('#dir-hint');
+  if (hint) {
+    const parts = ['点「选择文件夹…」在飞牛内嵌文件夹选择器中点选文件夹：选择即完成授权（trim.file.userAccess），下载目录与访问权限一步到位。'];
+    if (!authorized.length) parts.push('当前还没有已授权的文件夹。');
+    if (state.authorizedHint) parts.push(state.authorizedHint);
+    if (!window.trimApp) parts.push('（独立浏览器中需在飞牛应用内打开本页面才能调用选择器）');
+    hint.textContent = parts.join(' ');
+  }
+}
+
+/* 下拉点选即保存（与授权结果一致，无需再点保存设置） */
+async function saveDownloadDirFromSelect() {
+  const value = $('#setting-download-dir').value;
+  if (!value || value === ((state.settings && state.settings.download_dir) || '')) return;
+  try {
+    const data = await withLoading(() => api('/settings', { method: 'POST', body: { download_dir: value } }));
+    state.settings = data.settings || state.settings;
+    toast('下载目录已更新', 'success');
+    await loadSettings();
+  } catch (err) {
+    handleError(err);
+    await loadSettings();
   }
 }
 
@@ -993,10 +1035,10 @@ async function chooseDownloadDir() {
       toast('已打开授权窗口，完成后将自动更新', 'info');
       return;
     }
-    const data = await withLoading(() => api('/settings', { method: 'POST', body: { download_dir: paths[0] } }));
+    const data = await withLoading(() => api('/settings', { method: 'POST', body: { download_dir: paths[0], dir_from_picker: true } }));
     state.settings = data.settings || state.settings;
-    $('#setting-download-dir').value = (state.settings && state.settings.download_dir) || '';
-    toast('下载目录已授权', 'success');
+    toast('已选择并授权该文件夹，下载目录已更新', 'success');
+    await loadSettings();
   } catch (err) {
     handleError(err);
   }
@@ -1020,10 +1062,17 @@ function initSdk() {
           }).catch(() => {});
         }
         /* 独立浏览器授权完成后（回调页 postMessage 同源回传）刷新目录设置 */
-        listenForAuthResult(async () => {
+        listenForAuthResult(async (result) => {
           try {
+            const paths = result && Array.isArray(result.data) ? result.data : [];
+            if (paths.length) {
+              await withLoading(() => api('/settings', {
+                method: 'POST',
+                body: { download_dir: paths[0], dir_from_picker: true },
+              }));
+            }
             await loadSettings();
-            toast('目录授权已更新', 'success');
+            toast(paths.length ? '已选择并授权该文件夹，下载目录已更新' : '目录授权已更新', 'success');
           } catch (err) {
             handleError(err);
           }
@@ -1143,6 +1192,7 @@ function bindEvents() {
 
   $('#btn-save-settings').addEventListener('click', saveSettings);
   $('#btn-choose-dir').addEventListener('click', chooseDownloadDir);
+  $('#setting-download-dir').addEventListener('change', saveDownloadDirFromSelect);
 
   $('#btn-player-close').addEventListener('click', closePlayer);
   $('#player-audio').addEventListener('timeupdate', (ev) => syncLyric(ev.target.currentTime));

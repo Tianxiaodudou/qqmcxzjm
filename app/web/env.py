@@ -31,6 +31,16 @@ DEFAULT_LYRIC_TRANS = _env("QQMUSIC_LYRIC_TRANS", "true").lower() in {"1", "true
 # 用户授权可访问的目录（fnOS 提供，冒号分隔）
 AUTHORIZED_PATHS = [p for p in _env("QQMUSIC_AUTHORIZED_PATHS", "").split(":") if p]
 
+# 飞牛应用网关（trim_open_gateway）接入参数。
+# App Token 不在此读取：每次调用时从进程环境动态读取 TRIM_API_TOKEN。
+TRIM_APP_NAME = _env("QQMUSIC_TRIM_APP_NAME", "qqmusic-downloader")
+TRIM_API_SOCKET = _env("QQMUSIC_TRIM_API_SOCKET", "/var/run/trim_open_gateway_apiscope.socket")
+TRIM_API_PATH = _env("QQMUSIC_TRIM_API_PATH", "/api/v1/trimapp")
+try:
+    TRIM_API_TIMEOUT = float(_env("QQMUSIC_TRIM_API_TIMEOUT", "8"))
+except ValueError:
+    TRIM_API_TIMEOUT = 8.0
+
 # 安装向导配置的下载目录
 WIZARD_MEDIA_DIR = _env("QQMUSIC_MEDIA_DIR", "")
 
