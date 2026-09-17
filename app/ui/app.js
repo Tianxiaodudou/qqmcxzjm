@@ -28,7 +28,8 @@ const state = {
   loggedIn: false,
   home: { songlists: [], newsongs: [], loading: false, sel: new Set(), loadedAt: 0,
           guess: [], guessSel: new Set(), guessError: '',
-          radar: [], radarSel: new Set(), radarError: '' },
+          radar: [], radarSel: new Set(), radarError: '',
+          panel: '' },
   search: { keyword: '', type: 'song', page: 1, items: [], songlists: [], sel: new Set(), loading: false, hasMore: false },
   fav: { songlists: [], songs: [], page: 1, sel: new Set(), loading: false, hasMore: false, loadedAt: 0 },
   songlist: { id: 0, info: {}, songs: [], page: 1, sel: new Set(), hasMore: false, loading: false },
@@ -221,13 +222,42 @@ const VIEW_TITLES = {
   settings: '设置',
 };
 
+/* ---------------- 首页入口（四宫格） ----------------
+ * 首页默认只显示四个入口卡片，点进去才渲染对应列表，避免一屏堆四张长列表。 */
+const HOME_PANELS = {
+  songlists: '推荐歌单',
+  newsongs: '新歌推荐',
+  guess: '猜你喜欢',
+  radar: '每日推荐 · 私人雷达',
+};
+
+/** 切换首页面板：'' 表示入口宫格，其它值为对应列表 */
+function openHomePanel(name) {
+  state.home.panel = HOME_PANELS[name] ? name : '';
+  applyHomePanel();
+}
+
+/** 按 state.home.panel 显示/隐藏宫格与列表，并同步标题栏文字 */
+function applyHomePanel() {
+  const active = state.home.panel || '';
+  const hub = $('#home-hub');
+  if (hub) hub.classList.toggle('hidden', !!active);
+  $$('#view-home .home-panel').forEach((el) => {
+    el.classList.toggle('hidden', el.dataset.panel !== active);
+  });
+  if (state.view === 'home') {
+    $('#view-title').textContent = active ? `首页推荐 · ${HOME_PANELS[active]}` : VIEW_TITLES.home;
+  }
+  if (active) hydrateCovers($('#view-home'));   // 面板刚从隐藏变可见：按需补封面
+}
+
 function switchView(view) {
   state.view = view;
   $$('.nav-item').forEach((btn) => btn.classList.toggle('active', btn.dataset.view === view));
   $$('.view').forEach((el) => el.classList.toggle('active', el.id === `view-${view}`));
   $('#view-title').textContent = VIEW_TITLES[view] || '';
   // 每个页面都走「有缓存先渲染、过期再后台刷新」，切页不再白屏等待
-  if (view === 'home') loadHome();
+  if (view === 'home') { applyHomePanel(); loadHome(); }
   if (view === 'tasks') { renderTasks(); refreshTasks(); }
   if (view === 'history') loadHistory();
   if (view === 'settings') loadSettings();
@@ -566,6 +596,23 @@ function renderHome() {
   updateBulkBar($('#newsongs-all'), $('#newsongs-invert'), null, state.home.sel, state.home.newsongs);
   renderRecommendBlock('guess', state.home.guess, state.home.guessSel, state.home.guessError);
   renderRecommendBlock('radar', state.home.radar, state.home.radarSel, state.home.radarError);
+  renderHomeHub();
+}
+
+/** 入口卡片上的计数与面板显隐（数据变了就刷新一次） */
+function renderHomeHub() {
+  const setCount = (key, text) => {
+    const el = $(`#hub-count-${key}`);
+    if (el) el.textContent = text;
+  };
+  const n = (arr) => (arr || []).length;
+  setCount('songlists', n(state.home.songlists) ? `${n(state.home.songlists)} 个歌单` : '暂无');
+  setCount('newsongs', n(state.home.newsongs) ? `${n(state.home.newsongs)} 首` : '暂无');
+  setCount('guess', n(state.home.guess) ? `${n(state.home.guess)} 首` : '暂无');
+  setCount('radar', n(state.home.radar) ? `${n(state.home.radar)} 首` : '暂无');
+  const sub = $('#home-songlists-count');
+  if (sub) sub.textContent = n(state.home.songlists) ? `共 ${n(state.home.songlists)} 个歌单（点歌单卡片查看其中的歌曲）` : '';
+  applyHomePanel();
 }
 
 /* ---------------- 搜索 ---------------- */
@@ -2084,6 +2131,14 @@ function bindEvents() {
 
   on('#btn-reload-recommend', 'click', loadHome);
   bindSonglistCards($('#recommend-songlists'));
+  // 首页四宫格：点入口进对应列表，点「← 返回」回到入口
+  on('#home-hub', 'click', (ev) => {
+    const entry = ev.target.closest('.home-entry');
+    if (entry) openHomePanel(entry.dataset.panel);
+  });
+  on('#view-home', 'click', (ev) => {
+    if (ev.target.closest('[data-home-back]')) openHomePanel('');
+  });
 
   on('#btn-reload-fav', 'click', loadFav);
   on('#btn-fav-more', 'click', loadMoreFav);

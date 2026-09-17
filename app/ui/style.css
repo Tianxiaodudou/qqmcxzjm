@@ -133,7 +133,7 @@ body {
 
 .section-head {
   display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; margin: 22px 0 12px;
+  gap: 12px; margin: 22px 0 12px; flex-wrap: wrap;
 }
 
 .section-head:first-child { margin-top: 4px; }
@@ -735,12 +735,54 @@ body.has-player { overflow: hidden; }
 ::-webkit-scrollbar-thumb { background: #333a49; border-radius: 6px; }
 ::-webkit-scrollbar-thumb:hover { background: #414a5c; }
 
+/* ---------------- 首页入口（四宫格） ---------------- */
+.home-hub {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 14px;
+}
+
+.home-entry {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px;
+  text-align: left;
+  color: var(--text);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: transform .15s, border-color .15s, background .15s;
+}
+
+.home-entry:hover { transform: translateY(-2px); border-color: var(--primary); background: var(--bg-hover); }
+.home-entry:active { transform: translateY(0); }
+
+.home-entry .he-ico {
+  flex: 0 0 auto;
+  width: 46px; height: 46px;
+  display: grid; place-items: center;
+  font-size: 24px;
+  background: var(--bg-hover);
+  border-radius: 12px;
+}
+
+.home-entry .he-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.home-entry .he-title { font-size: 15px; font-weight: 600; }
+.home-entry .he-desc { font-size: 12px; color: var(--text-mute); }
+.home-entry .he-count { flex: 0 0 auto; font-size: 12px; color: var(--primary); white-space: nowrap; }
+
+.head-left { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
 /* ---------------- 响应式 ---------------- */
 @media (max-width: 900px) {
   .sidebar { width: 68px; flex-basis: 68px; padding: 14px 8px; }
   .brand-name, .brand-sub, .nav-item span:not(.ico), .nav-item > .badge, .account-status { display: none; }
   .nav-item { justify-content: center; }
   .content { padding: 14px; }
+  .home-hub { grid-template-columns: 1fr; }
+  .home-entry { padding: 14px; }
   .player-controls audio { width: 180px; }
   .player-meta { width: 110px; }
   .player-lyric { display: none; }

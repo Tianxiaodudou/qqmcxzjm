@@ -42,46 +42,105 @@
       </header>
 
       <div class="content">
-        <!-- 首页推荐 -->
+        <!-- 首页推荐：先给四个入口，点进去再看对应列表 -->
         <section class="view active" id="view-home">
           <div class="section-head">
-            <h2>推荐歌单</h2>
+            <h2>为你推荐</h2>
             <button class="btn btn-ghost" id="btn-reload-recommend">刷新</button>
           </div>
-          <div class="card-grid" id="recommend-songlists"></div>
-
-          <div class="section-head">
-            <h2>新歌推荐</h2>
-            <div class="bulk-actions" id="newsongs-bulk">
-              <label class="checkbox"><input type="checkbox" id="newsongs-all" />全选</label>
-              <button class="btn btn-ghost" id="newsongs-invert">反选</button>
-              <button class="btn btn-primary" id="newsongs-download">下载选中</button>
-              <span class="muted" id="newsongs-count"></span>
-            </div>
+          <div class="home-hub" id="home-hub">
+            <button class="home-entry" data-panel="songlists">
+              <span class="he-ico">🎼</span>
+              <span class="he-text">
+                <span class="he-title">推荐歌单</span>
+                <span class="he-desc">按你的口味挑出来的歌单</span>
+              </span>
+              <span class="he-count" id="hub-count-songlists"></span>
+            </button>
+            <button class="home-entry" data-panel="newsongs">
+              <span class="he-ico">🎧</span>
+              <span class="he-text">
+                <span class="he-title">新歌推荐</span>
+                <span class="he-desc">最近上新的歌，可批量勾选下载</span>
+              </span>
+              <span class="he-count" id="hub-count-newsongs"></span>
+            </button>
+            <button class="home-entry" data-panel="guess">
+              <span class="he-ico">✨</span>
+              <span class="he-text">
+                <span class="he-title">猜你喜欢</span>
+                <span class="he-desc">QQ音乐按你的口味推送</span>
+              </span>
+              <span class="he-count" id="hub-count-guess"></span>
+            </button>
+            <button class="home-entry" data-panel="radar">
+              <span class="he-ico">📻</span>
+              <span class="he-text">
+                <span class="he-title">每日推荐 · 私人雷达</span>
+                <span class="he-desc">每天更新一批，为你单独算的</span>
+              </span>
+              <span class="he-count" id="hub-count-radar"></span>
+            </button>
           </div>
-          <ul class="song-list" id="recommend-newsongs"></ul>
 
-          <div class="section-head">
-            <h2>猜你喜欢</h2>
-            <div class="bulk-actions hidden" id="guess-bulk">
-              <label class="checkbox"><input type="checkbox" id="guess-all" />全选</label>
-              <button class="btn btn-ghost" id="guess-invert">反选</button>
-              <button class="btn btn-primary" id="guess-download">下载选中</button>
-              <span class="muted" id="guess-count"></span>
+          <div class="home-panel hidden" data-panel="songlists">
+            <div class="section-head">
+              <div class="head-left">
+                <button class="btn btn-ghost" data-home-back="1">← 返回</button>
+                <h2>推荐歌单</h2>
+              </div>
+              <span class="muted" id="home-songlists-count"></span>
             </div>
+            <div class="card-grid" id="recommend-songlists"></div>
           </div>
-          <ul class="song-list" id="recommend-guess"></ul>
 
-          <div class="section-head">
-            <h2>每日推荐 · 私人雷达</h2>
-            <div class="bulk-actions hidden" id="radar-bulk">
-              <label class="checkbox"><input type="checkbox" id="radar-all" />全选</label>
-              <button class="btn btn-ghost" id="radar-invert">反选</button>
-              <button class="btn btn-primary" id="radar-download">下载选中</button>
-              <span class="muted" id="radar-count"></span>
+          <div class="home-panel hidden" data-panel="newsongs">
+            <div class="section-head">
+              <div class="head-left">
+                <button class="btn btn-ghost" data-home-back="1">← 返回</button>
+                <h2>新歌推荐</h2>
+              </div>
+              <div class="bulk-actions" id="newsongs-bulk">
+                <label class="checkbox"><input type="checkbox" id="newsongs-all" />全选</label>
+                <button class="btn btn-ghost" id="newsongs-invert">反选</button>
+                <button class="btn btn-primary" id="newsongs-download">下载选中</button>
+                <span class="muted" id="newsongs-count"></span>
+              </div>
             </div>
+            <ul class="song-list" id="recommend-newsongs"></ul>
           </div>
-          <ul class="song-list" id="recommend-radar"></ul>
+
+          <div class="home-panel hidden" data-panel="guess">
+            <div class="section-head">
+              <div class="head-left">
+                <button class="btn btn-ghost" data-home-back="1">← 返回</button>
+                <h2>猜你喜欢</h2>
+              </div>
+              <div class="bulk-actions hidden" id="guess-bulk">
+                <label class="checkbox"><input type="checkbox" id="guess-all" />全选</label>
+                <button class="btn btn-ghost" id="guess-invert">反选</button>
+                <button class="btn btn-primary" id="guess-download">下载选中</button>
+                <span class="muted" id="guess-count"></span>
+              </div>
+            </div>
+            <ul class="song-list" id="recommend-guess"></ul>
+          </div>
+
+          <div class="home-panel hidden" data-panel="radar">
+            <div class="section-head">
+              <div class="head-left">
+                <button class="btn btn-ghost" data-home-back="1">← 返回</button>
+                <h2>每日推荐 · 私人雷达</h2>
+              </div>
+              <div class="bulk-actions hidden" id="radar-bulk">
+                <label class="checkbox"><input type="checkbox" id="radar-all" />全选</label>
+                <button class="btn btn-ghost" id="radar-invert">反选</button>
+                <button class="btn btn-primary" id="radar-download">下载选中</button>
+                <span class="muted" id="radar-count"></span>
+              </div>
+            </div>
+            <ul class="song-list" id="recommend-radar"></ul>
+          </div>
         </section>
 
         <!-- 搜索 -->
