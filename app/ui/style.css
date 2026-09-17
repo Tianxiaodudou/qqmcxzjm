@@ -140,6 +140,9 @@ body {
 .section-head h2 { font-size: 15px; margin: 0; font-weight: 600; }
 
 .bulk-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* 正在载入整张列表（全选/反选前）：整条工具条淡化并显示进度文字 */
+.bulk-actions.busy { opacity: .65; }
+.bulk-actions.busy .muted { font-style: italic; }
 
 /* ---------------- 按钮/表单 ---------------- */
 .btn {

@@ -349,7 +349,37 @@ function bindSongListEvents(container, sel, listRef, onChange) {
 function updateBulkBar(allBox, invertBtn, countEl, sel, songs) {
   if (allBox) allBox.checked = songs.length > 0 && sel.size === songs.length;
   if (invertBtn) invertBtn.disabled = !songs.length;
-  if (countEl) countEl.textContent = sel.size ? `已选 ${sel.size} 首` : '';
+  // busy 时显示的是「正在载入完整列表 x/y」，不要覆盖成计数
+  if (countEl && !countEl.dataset.busy) {
+    countEl.textContent = songs.length
+      ? (sel.size ? `已选 ${sel.size} / 共 ${songs.length} 首` : `共 ${songs.length} 首`)
+      : '';
+  }
+}
+
+/* ---------------- 全量选择：全选/反选按「整张列表」生效 ---------------- */
+const ALL_PAGE_NUM = 50;       // 后端单页上限：搜索 / 收藏 = 50
+const ALL_PAGE_NUM_LIST = 100;  // 歌单单页上限 = 100
+const ALL_PAGE_MAX = 60;       // 安全上限（≥3000 首），避免接口异常时无限翻页
+
+/** 连续翻页把整张列表取回；已知总数 target（歌单 songnum）时可提前结束。 */
+async function fetchAllPages({ fetchPage, num = ALL_PAGE_NUM, target = 0, onProgress }) {
+  const out = [];
+  const seen = new Set();
+  for (let page = 1; page <= ALL_PAGE_MAX; page += 1) {
+    const batch = (await fetchPage(page, num)) || [];
+    batch.forEach((song) => {
+      const mid = song && song.songmid;
+      if (mid && !seen.has(mid)) {
+        seen.add(mid);
+        out.push(song);
+      }
+    });
+    if (onProgress) onProgress(out.length, target);
+    if (batch.length < num) break;      // 不满一页 → 已经到底
+    if (target && out.length >= target) break;
+  }
+  return out;
 }
 
 function invertSelection(sel, songs) {
@@ -361,6 +391,8 @@ function invertSelection(sel, songs) {
 function selectAll(sel, songs, checked) {
   songs.forEach((song) => { if (checked) sel.add(song.songmid); else sel.delete(song.songmid); });
 }
+
+const TASK_BATCH_MAX = 100;   // 与后端 MAX_BATCH 对齐：单次最多创建 100 个任务
 
 async function createTasks(songs, { silent = false } = {}) {
   const payload = songs
@@ -376,14 +408,26 @@ async function createTasks(songs, { silent = false } = {}) {
     toast('请先选择歌曲', 'warn');
     return [];
   }
+  const created = [];
+  const skipped = [];
   try {
-    const data = await withLoading(() => api('/tasks', { method: 'POST', body: { songs: payload } }));
-    const created = data.created || [];
-    const skipped = data.skipped || [];
+    // 选中数量可能超过后端单次上限（整张列表全选）：分批提交（全程只亮一次 loading）
+    await withLoading(async () => {
+      for (let i = 0; i < payload.length; i += TASK_BATCH_MAX) {
+        const chunk = payload.slice(i, i + TASK_BATCH_MAX);
+        if (payload.length > TASK_BATCH_MAX) {
+          toast(`正在创建下载任务 ${Math.min(i + chunk.length, payload.length)} / ${payload.length}…`, 'info', 1600);
+        }
+        const data = await api('/tasks', { method: 'POST', body: { songs: chunk } });
+        created.push(...(data.created || []));
+        skipped.push(...(data.skipped || []));
+      }
+    });
     if (skipped.length) {
       // 下载目录里已有同名成品：不重复下载，直接告知
-      const names = skipped.map((s) => s.name || s.songmid).join('、');
-      toast(`已有该音乐文件：${names}`, 'warn', Math.min(9000, 3000 + skipped.length * 300));
+      const names = skipped.slice(0, 5).map((s) => s.name || s.songmid).join('、');
+      const more = skipped.length > 5 ? ` 等 ${skipped.length} 首` : '';
+      toast(`已有该音乐文件：${names}${more}`, 'warn', Math.min(9000, 3000 + skipped.length * 300));
     }
     if (created.length) {
       if (!silent) toast(`已创建 ${created.length} 个下载任务`, 'success');
@@ -395,7 +439,7 @@ async function createTasks(songs, { silent = false } = {}) {
     return created;
   } catch (err) {
     handleError(err);
-    return [];
+    return created;
   }
 }
 
@@ -523,13 +567,41 @@ async function loadSearch({ reset = false } = {}) {
     }
     state.search.hasMore = items.length >= 20;
     $('#search-more').classList.toggle('hidden', !state.search.hasMore);
-    updateBulkBar($('#search-all'), $('#search-invert'), null, state.search.sel, state.search.items);
+    // 有结果才显示批量操作栏（此前它一直带着 hidden，导致搜索结果里点不到「全选」）
+    $('#search-bulk').classList.toggle('hidden', !state.search.items.length);
+    updateBulkBar($('#search-all'), $('#search-invert'), $('#search-count'), state.search.sel, state.search.items);
   } catch (err) {
     handleError(err, { silent: err.code === 'not_logged_in' });
     renderSongList($('#search-results'), [], state.search.sel, '搜索失败');
+    $('#search-bulk').classList.add('hidden');
   } finally {
     state.search.loading = false;
   }
+}
+
+/** 把搜索结果整张列表取回（含尚未翻到的分页），供全选/反选使用。 */
+async function loadAllSearch(onProgress) {
+  const keyword = state.search.keyword;
+  const kind = state.search.type === 'songlist' ? 'songlist' : (state.search.type || 'song');
+  return fetchAllPages({
+    num: ALL_PAGE_NUM,
+    fetchPage: async (page, num) => {
+      const data = await api('/search', { query: { keyword, type: kind, page, num } });
+      return data.items || [];
+    },
+    onProgress,
+  });
+}
+
+/** 整张搜索结果到手后替换列表并重渲染（分页按钮随之隐藏）。 */
+function applyAllSearch(items) {
+  if (!items.length) return;
+  state.search.items = items;
+  state.search.page = 1;
+  state.search.hasMore = false;
+  renderSongList($('#search-results'), state.search.items, state.search.sel, '没有找到相关歌曲');
+  $('#search-more').classList.add('hidden');
+  updateBulkBar($('#search-all'), $('#search-invert'), $('#search-count'), state.search.sel, state.search.items);
 }
 
 /* ---------------- 我的歌单（收藏） ---------------- */
@@ -577,7 +649,7 @@ function renderFav() {
   renderSonglistCards($('#fav-songlists'), state.fav.songlists, '暂无收藏歌单');
   renderSongList($('#fav-songs'), state.fav.songs, state.fav.sel, '暂无收藏歌曲');
   $('#fav-more').classList.toggle('hidden', !state.fav.hasMore);
-  updateBulkBar($('#fav-all'), $('#fav-invert'), null, state.fav.sel, state.fav.songs);
+  updateBulkBar($('#fav-all'), $('#fav-invert'), $('#fav-count'), state.fav.sel, state.fav.songs);
   hydrateCovers($('#fav-songlists'));
 }
 
@@ -590,10 +662,31 @@ async function loadMoreFav() {
     renderSongList($('#fav-songs'), state.fav.songs, state.fav.sel, '暂无收藏歌曲');
     state.fav.hasMore = items.length >= 30;
     $('#fav-more').classList.toggle('hidden', !state.fav.hasMore);
-    updateBulkBar($('#fav-all'), $('#fav-invert'), null, state.fav.sel, state.fav.songs);
+    updateBulkBar($('#fav-all'), $('#fav-invert'), $('#fav-count'), state.fav.sel, state.fav.songs);
   } catch (err) {
     handleError(err);
   }
+}
+
+/** 把收藏歌曲整张列表取回（收藏接口不返回总数，翻到不满一页为止）。 */
+async function loadAllFav(onProgress) {
+  return fetchAllPages({
+    num: ALL_PAGE_NUM,
+    fetchPage: async (page, num) => {
+      const data = await api('/user/fav', { query: { page, num } });
+      return data.items || [];
+    },
+    onProgress,
+  });
+}
+
+/** 整张收藏列表到手后替换列表并重渲染。 */
+function applyAllFav(items) {
+  if (!items.length) return;
+  state.fav.songs = items;
+  state.fav.page = 1;
+  state.fav.hasMore = false;
+  renderFav();
 }
 
 /* ---------------- 歌单详情 ---------------- */
@@ -627,13 +720,39 @@ async function loadSonglistPage(reset = false) {
     renderSongList($('#songlist-songs'), state.songlist.songs, state.songlist.sel, '该歌单暂无歌曲');
     state.songlist.hasMore = items.length >= 30;
     $('#songlist-more').classList.toggle('hidden', !state.songlist.hasMore);
-    updateBulkBar($('#songlist-all'), $('#songlist-invert'), null, state.songlist.sel, state.songlist.songs);
+    updateBulkBar($('#songlist-all'), $('#songlist-invert'), $('#songlist-sel-count'), state.songlist.sel, state.songlist.songs);
   } catch (err) {
     handleError(err);
     renderSongList($('#songlist-songs'), [], state.songlist.sel, '加载失败');
   } finally {
     state.songlist.loading = false;
   }
+}
+
+/** 把歌单整张列表取回：已知 songnum 时到数即停，否则翻到不满一页。 */
+async function loadAllSonglist(onProgress) {
+  const id = state.songlist.id;
+  const target = Number((state.songlist.info || {}).songnum) || 0;
+  return fetchAllPages({
+    num: ALL_PAGE_NUM_LIST,
+    target,
+    fetchPage: async (page, num) => {
+      const data = await api(`/songlist/${id}`, { query: { page, num } });
+      return data.songs || [];
+    },
+    onProgress,
+  });
+}
+
+/** 整张歌单到手后替换列表并重渲染。 */
+function applyAllSonglist(items) {
+  if (!items.length) return;
+  state.songlist.songs = items;
+  state.songlist.page = 1;
+  state.songlist.hasMore = false;
+  renderSongList($('#songlist-songs'), state.songlist.songs, state.songlist.sel, '该歌单暂无歌曲');
+  $('#songlist-more').classList.add('hidden');
+  updateBulkBar($('#songlist-all'), $('#songlist-invert'), $('#songlist-sel-count'), state.songlist.sel, state.songlist.songs);
 }
 
 /* ---------------- 登录：二维码 / 手机号 ---------------- */
@@ -1741,19 +1860,74 @@ function rerenderWithSelection(container, songs, sel) {
   renderSongList(container, songs, sel);
 }
 
-function bindBulkControls({ container, songs, sel, allSel, invertBtn, downloadBtn, bulkBar }) {
+/**
+ * 批量栏绑定：全选 / 反选作用于「整张列表」——点下去先把尚未加载完的分页全部取回
+ * （loadAll / applyAll 由各列表提供；不提供说明该列表本身已是完整的一屏列表）。
+ */
+function bindBulkControls({ container, songs, sel, allSel, invertBtn, downloadBtn, bulkBar, countEl, loadAll, applyAll, hasMore, label = '列表' }) {
+  let busy = false;
+
+  const sync = () => updateBulkBar(allSel, invertBtn, countEl, sel, songs());
+
+  const setBusy = (on) => {
+    busy = on;
+    if (bulkBar) bulkBar.classList.toggle('busy', on);
+    [allSel, invertBtn, downloadBtn].forEach((el) => {
+      if (el) el.disabled = on;
+    });
+    if (countEl) {
+      if (on) {
+        countEl.dataset.busy = '1';
+        countEl.textContent = `正在载入完整${label}…`;   // 首个分页返回前也要有反馈
+      } else {
+        delete countEl.dataset.busy;
+      }
+    }
+  };
+
+  /** 需要时先把整张列表取回来；返回 false 表示取回失败（此时不要做全选/反选）。 */
+  const ensureWholeList = async () => {
+    if (busy) return false;
+    if (!loadAll || !applyAll) return true;
+    if (hasMore && !hasMore()) return true;   // 列表已经完整，不必再拉一次
+    setBusy(true);
+    try {
+      const items = await loadAll((got, total) => {
+        if (!countEl) return;
+        countEl.textContent = total
+          ? `正在载入完整${label} ${got} / ${total} 首…`
+          : `正在载入完整${label} ${got} 首…`;
+      });
+      applyAll(items);
+      return true;
+    } catch (err) {
+      handleError(err);
+      return false;
+    } finally {
+      setBusy(false);
+      sync();
+    }
+  };
+
   if (allSel) {
-    allSel.addEventListener('change', () => {
-      selectAll(sel, songs(), allSel.checked);
+    allSel.addEventListener('change', async () => {
+      // 先记下用户意图：拉整表过程中会重渲染列表并同步勾选框，不能等到 await 之后再读
+      const want = allSel.checked;
+      if (want && !(await ensureWholeList())) {
+        allSel.checked = false;   // 整张列表没取回来 → 不假装已全选
+        return;
+      }
+      selectAll(sel, songs(), want);
       rerenderWithSelection(container, songs(), sel);
-      updateBulkBar(allSel, invertBtn, bulkBar, sel, songs());
+      sync();
     });
   }
   if (invertBtn) {
-    invertBtn.addEventListener('click', () => {
+    invertBtn.addEventListener('click', async () => {
+      if (!(await ensureWholeList())) return;
       invertSelection(sel, songs());
       rerenderWithSelection(container, songs(), sel);
-      updateBulkBar(allSel, invertBtn, bulkBar, sel, songs());
+      sync();
     });
   }
   if (downloadBtn) {
@@ -1767,7 +1941,7 @@ function bindBulkControls({ container, songs, sel, allSel, invertBtn, downloadBt
       if (created && created.length) {
         sel.clear();
         rerenderWithSelection(container, songs(), sel);
-        updateBulkBar(allSel, invertBtn, bulkBar, sel, songs());
+        sync();
         startTaskPolling();
         switchView('tasks');
       }
@@ -1871,7 +2045,9 @@ function bindEvents() {
     allSel: $('#newsongs-all'),
     invertBtn: $('#newsongs-invert'),
     downloadBtn: $('#newsongs-download'),
-    bulkBar: null,
+    countEl: $('#newsongs-count'),
+    label: '推荐列表',
+    bulkBar: $('#newsongs-bulk'),
   });
   bindBulkControls({
     container: $('#search-results'),
@@ -1880,7 +2056,12 @@ function bindEvents() {
     allSel: $('#search-all'),
     invertBtn: $('#search-invert'),
     downloadBtn: $('#search-download'),
-    bulkBar: null,
+    countEl: $('#search-count'),
+    hasMore: () => state.search.hasMore,
+    loadAll: loadAllSearch,
+    applyAll: applyAllSearch,
+    label: '搜索结果',
+    bulkBar: $('#search-bulk'),
   });
   bindBulkControls({
     container: $('#fav-songs'),
@@ -1889,7 +2070,12 @@ function bindEvents() {
     allSel: $('#fav-all'),
     invertBtn: $('#fav-invert'),
     downloadBtn: $('#fav-download'),
-    bulkBar: null,
+    countEl: $('#fav-count'),
+    hasMore: () => state.fav.hasMore,
+    loadAll: loadAllFav,
+    applyAll: applyAllFav,
+    label: '收藏列表',
+    bulkBar: $('#fav-bulk'),
   });
   bindBulkControls({
     container: $('#songlist-songs'),
@@ -1898,7 +2084,12 @@ function bindEvents() {
     allSel: $('#songlist-all'),
     invertBtn: $('#songlist-invert'),
     downloadBtn: $('#songlist-download'),
-    bulkBar: null,
+    countEl: $('#songlist-sel-count'),
+    hasMore: () => state.songlist.hasMore,
+    loadAll: loadAllSonglist,
+    applyAll: applyAllSonglist,
+    label: '歌单',
+    bulkBar: $('#songlist-bulk'),
   });
 
   on('#btn-songlist-more', 'click', () => {

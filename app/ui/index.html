@@ -52,10 +52,11 @@
 
           <div class="section-head">
             <h2>新歌推荐</h2>
-            <div class="bulk-actions">
+            <div class="bulk-actions" id="newsongs-bulk">
               <label class="checkbox"><input type="checkbox" id="newsongs-all" />全选</label>
               <button class="btn btn-ghost" id="newsongs-invert">反选</button>
               <button class="btn btn-primary" id="newsongs-download">下载选中</button>
+              <span class="muted" id="newsongs-count"></span>
             </div>
           </div>
           <ul class="song-list" id="recommend-newsongs"></ul>
@@ -79,6 +80,7 @@
             <label class="checkbox"><input type="checkbox" id="search-all" />全选</label>
             <button class="btn btn-ghost" id="search-invert">反选</button>
             <button class="btn btn-primary" id="search-download">下载选中</button>
+            <span class="muted" id="search-count"></span>
           </div>
 
           <ul class="song-list" id="search-results"></ul>
@@ -101,6 +103,7 @@
             <label class="checkbox"><input type="checkbox" id="fav-all" />全选</label>
             <button class="btn btn-ghost" id="fav-invert">反选</button>
             <button class="btn btn-primary" id="fav-download">下载选中</button>
+            <span class="muted" id="fav-count"></span>
           </div>
           <ul class="song-list" id="fav-songs"></ul>
           <div class="load-more hidden" id="fav-more">
@@ -287,6 +290,7 @@
           <button class="btn btn-ghost" id="songlist-invert">反选</button>
           <button class="btn btn-primary" id="songlist-download">下载选中</button>
           <span class="muted" id="songlist-count"></span>
+          <span class="muted" id="songlist-sel-count"></span>
         </div>
         <ul class="song-list" id="songlist-songs"></ul>
         <div class="load-more hidden" id="songlist-more">
