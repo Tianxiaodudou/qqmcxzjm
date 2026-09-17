@@ -555,6 +555,62 @@ class QQService:
         raw = self._find_list(response, ("song", "songs", "songlist", "list", "items"))
         return [self.song_summary(s) for s in raw]
 
+    def _recommend_append(self, items: list[dict[str, Any]], seen: set[str], raw: Any) -> None:
+        """把一批上游歌曲归一化后追加（按 songmid 去重）。"""
+        for song in self._find_list(raw, ("song", "songs", "songlist", "list", "items")) or []:
+            summary = self.song_summary(song)
+            songmid = str(summary.get("songmid") or "")
+            if not songmid or songmid in seen:
+                continue
+            seen.add(songmid)
+            items.append(summary)
+
+    async def recommend_guess(self, rounds: int = 3, limit: int = 15) -> list[dict[str, Any]]:
+        """猜你喜欢：服务器按当前账号推送。
+
+        上游单次固定只给 5 首（``num`` 由服务端写死），但连续调用会持续给新歌，
+        因此多轮拉取并按 songmid 去重，凑出一屏可用的列表。
+        """
+        target = max(1, min(60, int(limit or 15)))
+        result: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for _ in range(max(1, min(6, int(rounds or 3)))):
+            try:
+                response = await self.call(lambda c: c.recommend.get_guess_recommend())
+            except Exception:  # noqa: BLE001 —— 已有结果时单轮失败不推翻整体
+                if result:
+                    break
+                raise
+            before = len(result)
+            self._recommend_append(result, seen, response)
+            if len(result) >= target:
+                break
+            if len(result) == before:
+                break   # 上游开始重复 → 再拉也不会更多
+        return result[:target]
+
+    async def recommend_radar(self, pages: int = 3, limit: int = 30) -> list[dict[str, Any]]:
+        """私人雷达（QQ音乐每日推荐的个人电台）：每页 10 首，按需翻页去重。"""
+        target = max(1, min(100, int(limit or 30)))
+        result: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for page in range(1, max(1, min(10, int(pages or 3))) + 1):
+            try:
+                response = await self.call(
+                    lambda c, p=page: c.recommend.get_radar_recommend(page=p)
+                )
+            except Exception:  # noqa: BLE001
+                if result:
+                    break
+                raise
+            before = len(result)
+            self._recommend_append(result, seen, response)
+            if len(result) >= target or len(result) == before:
+                break
+            if not self._field(response, "has_more", default=False):
+                break
+        return result[:target]
+
     def _euin(self) -> str:
         credential = self._credential_object()
         if credential is None:

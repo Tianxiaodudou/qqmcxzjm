@@ -42,6 +42,8 @@ DEFAULT_LYRIC_TRANS = _env("QQMUSIC_LYRIC_TRANS", "true").lower() in {"1", "true
 # 下载节奏默认值（安装/配置向导可覆盖：wizard_interval_min_ms / wizard_interval_max_ms）
 DEFAULT_INTERVAL_MIN_MS = _env_int("QQMUSIC_INTERVAL_MIN_MS", 300, low=0, high=60000)
 DEFAULT_INTERVAL_MAX_MS = _env_int("QQMUSIC_INTERVAL_MAX_MS", 800, low=0, high=60000)
+# 「全选」单次最多选中的歌曲数：点全选时前端最多把整张列表补全到这么多首
+DEFAULT_SELECT_MAX = _env_int("QQMUSIC_SELECT_MAX", 500, low=10, high=20000)
 # 完整元数据：额外拉取制作人名单 / 榜单标签 / 收藏热度等（多 3 次请求）
 DEFAULT_META_FULL = _env("QQMUSIC_META_FULL", "true").lower() in {"1", "true", "yes", "on"}
 # 是否在音频同目录额外保存同名 .json 元数据文件

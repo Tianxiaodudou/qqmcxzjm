@@ -60,6 +60,28 @@
             </div>
           </div>
           <ul class="song-list" id="recommend-newsongs"></ul>
+
+          <div class="section-head">
+            <h2>猜你喜欢</h2>
+            <div class="bulk-actions hidden" id="guess-bulk">
+              <label class="checkbox"><input type="checkbox" id="guess-all" />全选</label>
+              <button class="btn btn-ghost" id="guess-invert">反选</button>
+              <button class="btn btn-primary" id="guess-download">下载选中</button>
+              <span class="muted" id="guess-count"></span>
+            </div>
+          </div>
+          <ul class="song-list" id="recommend-guess"></ul>
+
+          <div class="section-head">
+            <h2>每日推荐 · 私人雷达</h2>
+            <div class="bulk-actions hidden" id="radar-bulk">
+              <label class="checkbox"><input type="checkbox" id="radar-all" />全选</label>
+              <button class="btn btn-ghost" id="radar-invert">反选</button>
+              <button class="btn btn-primary" id="radar-download">下载选中</button>
+              <span class="muted" id="radar-count"></span>
+            </div>
+          </div>
+          <ul class="song-list" id="recommend-radar"></ul>
         </section>
 
         <!-- 搜索 -->
@@ -191,6 +213,13 @@
                 <input type="number" id="setting-interval-max" min="100" max="8000" step="50" /> <span class="muted">毫秒</span>
               </div>
               <p class="hint">每个任务之间随机延时，避免触发风控。</p>
+            </div>
+            <div class="field">
+              <label for="setting-select-max">全选上限（首）</label>
+              <div class="inline">
+                <input type="number" id="setting-select-max" min="10" max="20000" step="10" /> <span class="muted">首</span>
+              </div>
+              <p class="hint">点「全选 / 反选 / 下载选中」时，最多按整张列表补全到这么多首后生效（默认 500，最大 20000）。列表比这个还大时只处理前若干首，避免动辄几千首的列表卡住页面。</p>
             </div>
             <button class="btn btn-primary" id="btn-save-settings">保存设置</button>
           </div>

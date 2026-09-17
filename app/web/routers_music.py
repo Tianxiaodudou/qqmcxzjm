@@ -108,6 +108,24 @@ async def recommend_newsongs(type: int = Query(5)) -> dict[str, Any]:  # noqa: A
     return {"ok": True, "items": items}
 
 
+@router.get("/recommend/guess")
+async def recommend_guess(
+    limit: int = Query(15, ge=5, le=60),
+) -> dict[str, Any]:
+    """猜你喜欢：QQ音乐按当前账号推送（登录后即为个人化结果）。"""
+    items = await service.recommend_guess(limit=limit)
+    return {"ok": True, "items": items}
+
+
+@router.get("/recommend/radar")
+async def recommend_radar(
+    limit: int = Query(30, ge=10, le=100),
+) -> dict[str, Any]:
+    """私人雷达（每日推荐）：QQ音乐每日按账号口味更新的个人电台。"""
+    items = await service.recommend_radar(limit=limit)
+    return {"ok": True, "items": items}
+
+
 @router.get("/user/fav")
 async def user_fav(
     page: int = Query(1, ge=1),

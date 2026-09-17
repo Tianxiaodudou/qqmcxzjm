@@ -44,6 +44,7 @@ class SettingsRequest(BaseModel):
     meta_json: bool | None = None
     interval_min_ms: int | None = None
     interval_max_ms: int | None = None
+    select_max: int | None = None
 
 
 def _validate_dir(raw: str, extra_allowed: list[str] | None = None) -> Path:
@@ -272,5 +273,8 @@ async def update_settings(payload: SettingsRequest, request: Request) -> dict[st
         settings["interval_max_ms"] = max(100, min(8000, int(payload.interval_max_ms)))
     if settings["interval_max_ms"] < settings["interval_min_ms"]:
         settings["interval_max_ms"] = settings["interval_min_ms"]
+    if payload.select_max is not None:
+        # 「全选」单次上限：最少 10 首，最多 20000 首（防手滑填出天量翻页）
+        settings["select_max"] = max(10, min(20000, int(payload.select_max)))
     store.save_settings(settings)
     return {"ok": True, "settings": settings}

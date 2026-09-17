@@ -114,6 +114,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "interval_max_ms": env.DEFAULT_INTERVAL_MAX_MS,
     "meta_full": env.DEFAULT_META_FULL,
     "meta_json": env.DEFAULT_META_JSON,
+    "select_max": env.DEFAULT_SELECT_MAX,
 }
 
 

@@ -54,11 +54,34 @@ with TestClient(main.app) as client:
     )
     check("gateway-prefix-api-tasks", lambda: client.get("/app/qqmusic-downloader/api/tasks").json())
     check("fav-without-login", lambda: client.get("/api/user/fav").json())
+    check(
+        "settings-select-max-default",
+        lambda: client.get("/api/settings").json()["settings"]["select_max"],
+    )
+    check(
+        "settings-select-max-clamp",
+        lambda: (
+            client.post("/api/settings", json={"select_max": 99999}).json()["settings"]["select_max"],
+            client.post("/api/settings", json={"select_max": 1}).json()["settings"]["select_max"],
+            client.post("/api/settings", json={"select_max": 800}).json()["settings"]["select_max"],
+        ),
+    )
     check("bad-task-create", lambda: client.post("/api/tasks", json={"songs": []}).status_code)
     check("retry-unknown", lambda: client.post("/api/tasks/nope/retry").json())
     check(
         "search-network",
         lambda: client.get("/api/search", params={"keyword": "周杰伦", "num": 2}).json(),
+        optional=True,
+    )
+    # 猜你喜欢 / 每日推荐（私人雷达）：由 QQ音乐服务器按账号推送，匿名也可用
+    check(
+        "recommend-guess-network",
+        lambda: len(client.get("/api/recommend/guess", params={"limit": 15}).json()["items"]),
+        optional=True,
+    )
+    check(
+        "recommend-radar-network",
+        lambda: len(client.get("/api/recommend/radar", params={"limit": 30}).json()["items"]),
         optional=True,
     )
 

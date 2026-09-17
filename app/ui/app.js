@@ -26,7 +26,9 @@ const on = (sel, ev, fn) => {
 const state = {
   view: 'home',
   loggedIn: false,
-  home: { songlists: [], newsongs: [], loading: false, sel: new Set(), loadedAt: 0 },
+  home: { songlists: [], newsongs: [], loading: false, sel: new Set(), loadedAt: 0,
+          guess: [], guessSel: new Set(), guessError: '',
+          radar: [], radarSel: new Set(), radarError: '' },
   search: { keyword: '', type: 'song', page: 1, items: [], songlists: [], sel: new Set(), loading: false, hasMore: false },
   fav: { songlists: [], songs: [], page: 1, sel: new Set(), loading: false, hasMore: false, loadedAt: 0 },
   songlist: { id: 0, info: {}, songs: [], page: 1, sel: new Set(), hasMore: false, loading: false },
@@ -360,13 +362,26 @@ function updateBulkBar(allBox, invertBtn, countEl, sel, songs) {
 /* ---------------- 全量选择：全选/反选按「整张列表」生效 ---------------- */
 const ALL_PAGE_NUM = 50;       // 后端单页上限：搜索 / 收藏 = 50
 const ALL_PAGE_NUM_LIST = 100;  // 歌单单页上限 = 100
-const ALL_PAGE_MAX = 60;       // 安全上限（≥3000 首），避免接口异常时无限翻页
+const PAGE_SAFETY_MAX = 400;   // 翻页硬上限（400×50 = 2 万首），避免接口异常时无限翻页
+const SELECT_MAX_FALLBACK = 500;  // 「全选上限」兜底值：设置未加载时使用
 
-/** 连续翻页把整张列表取回；已知总数 target（歌单 songnum）时可提前结束。 */
+/** 当前「全选上限」（设置页可调，默认 500 首）。 */
+function selectMax() {
+  const value = Number((state.settings || {}).select_max);
+  return Number.isFinite(value) && value > 0 ? value : SELECT_MAX_FALLBACK;
+}
+
+/* 上一次 fetchAllPages 是否因为触到「全选上限」而提前结束（供提示用） */
+let allPagesTruncated = false;
+
+/** 连续翻页把整张列表取回（最多取「全选上限」首）；已知总数 target（歌单 songnum）时可提前结束。 */
 async function fetchAllPages({ fetchPage, num = ALL_PAGE_NUM, target = 0, onProgress }) {
   const out = [];
   const seen = new Set();
-  for (let page = 1; page <= ALL_PAGE_MAX; page += 1) {
+  const limit = Math.max(1, target > 0 ? Math.min(selectMax(), target) : selectMax());
+  const maxPages = Math.max(1, Math.min(PAGE_SAFETY_MAX, Math.ceil(limit / Math.max(1, num))));
+  allPagesTruncated = false;
+  for (let page = 1; page <= maxPages; page += 1) {
     const batch = (await fetchPage(page, num)) || [];
     batch.forEach((song) => {
       const mid = song && song.songmid;
@@ -376,7 +391,12 @@ async function fetchAllPages({ fetchPage, num = ALL_PAGE_NUM, target = 0, onProg
       }
     });
     if (onProgress) onProgress(out.length, target);
-    if (batch.length < num) break;      // 不满一页 → 已经到底
+    const moreOnServer = batch.length >= num;      // 这一页是满的 → 上游还有下一页
+    if (out.length >= limit) {
+      allPagesTruncated = moreOnServer;
+      break;
+    }
+    if (!moreOnServer) break;      // 不满一页 → 已经到底
     if (target && out.length >= target) break;
   }
   return out;
@@ -474,14 +494,22 @@ async function loadHomeInner({ force = false, background = false } = {}) {
     renderSonglistCards($('#recommend-songlists'), [], '');
     $('#recommend-songlists').innerHTML = '<div class="empty">加载中…</div>';
     renderSongSkeleton($('#recommend-newsongs'));
+    renderSongSkeleton($('#recommend-guess'));
+    renderSongSkeleton($('#recommend-radar'));
   }
   try {
-    const [lists, songs] = await Promise.all([
+    const [lists, songs, guess, radar] = await Promise.all([
       api('/recommend/songlists', { query: { page: 1 } }),
       api('/recommend/newsongs'),
+      fetchRecommendList('/recommend/guess'),
+      fetchRecommendList('/recommend/radar'),
     ]);
     state.home.songlists = lists.items || [];
     state.home.newsongs = songs.items || [];
+    state.home.guess = guess.items;
+    state.home.guessError = guess.error;
+    state.home.radar = radar.items;
+    state.home.radarError = radar.error;
     state.home.loadedAt = Date.now();
     if (!state.home.songlists.length && !state.home.newsongs.length && !background) {
       await refreshLoginStatus();
@@ -502,11 +530,42 @@ async function loadHomeInner({ force = false, background = false } = {}) {
   }
 }
 
+/**
+ * 首页个性化推荐（猜你喜欢 / 每日推荐）：由 QQ音乐服务器按当前账号口味推送。
+ * 失败不影响首页其它区块，只在该区块内提示。
+ */
+async function fetchRecommendList(path) {
+  try {
+    const data = await api(path);
+    return { items: data.items || [], error: '' };
+  } catch (err) {
+    if (err && err.code === 'not_logged_in') {
+      return { items: [], error: '登录后可按你的口味推送' };
+    }
+    return { items: [], error: '加载失败，稍后可重试' };
+  }
+}
+
+/** 渲染「猜你喜欢 / 每日推荐」区块：列表 + 批量栏（无数据时隐藏批量栏） */
+function renderRecommendBlock(key, items, sel, errorText) {
+  const list = $(`#recommend-${key}`);
+  if (!list) return;
+  // 清掉不在本列表里的历史选中项，避免「已选 N」虚高
+  const valid = new Set(items.map((s) => s.songmid));
+  Array.from(sel).forEach((mid) => { if (!valid.has(mid)) sel.delete(mid); });
+  renderSongList(list, items, sel, errorText || '暂无推荐');
+  const bulk = $(`#${key}-bulk`);
+  if (bulk) bulk.classList.toggle('hidden', !items.length);
+  updateBulkBar($(`#${key}-all`), $(`#${key}-invert`), $(`#${key}-count`), sel, items);
+}
+
 /** 用 state.home 渲染首页（缓存命中时也走这里） */
 function renderHome() {
   renderSonglistCards($('#recommend-songlists'), state.home.songlists, '暂无推荐歌单');
   renderSongList($('#recommend-newsongs'), state.home.newsongs, state.home.sel, '暂无推荐新歌');
   updateBulkBar($('#newsongs-all'), $('#newsongs-invert'), null, state.home.sel, state.home.newsongs);
+  renderRecommendBlock('guess', state.home.guess, state.home.guessSel, state.home.guessError);
+  renderRecommendBlock('radar', state.home.radar, state.home.radarSel, state.home.radarError);
 }
 
 /* ---------------- 搜索 ---------------- */
@@ -1698,6 +1757,8 @@ function applySettings() {
   renderDirOptions();
   $('#setting-interval-min').value = s.interval_min_ms || 300;
   $('#setting-interval-max').value = s.interval_max_ms || 800;
+  const selectMaxInput = $('#setting-select-max');
+  if (selectMaxInput) selectMaxInput.value = s.select_max || SELECT_MAX_FALLBACK;
 }
 
 /* 下载目录 = 已授权目录列表（选择与授权合并为一处） */
@@ -1753,6 +1814,12 @@ async function saveSettings() {
     toast('最大间隔不能小于最小间隔', 'warn');
     return;
   }
+  const selectMaxInput = Number($('#setting-select-max').value);
+  if (!Number.isFinite(selectMaxInput) || selectMaxInput < 10 || selectMaxInput > 20000) {
+    toast('全选上限需在 10 ~ 20000 首之间', 'warn');
+    return;
+  }
+  payload.select_max = Math.round(selectMaxInput);
   try {
     const data = await withLoading(() => api('/settings', { method: 'POST', body: payload }));
     state.settings = data.settings || state.settings;
@@ -1890,6 +1957,9 @@ function bindBulkControls({ container, songs, sel, allSel, invertBtn, downloadBt
     if (busy) return false;
     if (!loadAll || !applyAll) return true;
     if (hasMore && !hasMore()) return true;   // 列表已经完整，不必再拉一次
+    if (!state.settingsLoadedAt) {            // 「全选上限」来自设置，还没加载就先取一次
+      try { await loadSettings(); } catch (err) { /* 取不到就用兜底上限 */ }
+    }
     setBusy(true);
     try {
       const items = await loadAll((got, total) => {
@@ -1899,6 +1969,9 @@ function bindBulkControls({ container, songs, sel, allSel, invertBtn, downloadBt
           : `正在载入完整${label} ${got} 首…`;
       });
       applyAll(items);
+      if (allPagesTruncated) {
+        toast(`已按「全选上限」${selectMax()} 首截断，本次只处理前 ${items.length} 首（可在设置页调大上限）`, 'warn', 6000);
+      }
       return true;
     } catch (err) {
       handleError(err);
@@ -2048,6 +2121,31 @@ function bindEvents() {
     countEl: $('#newsongs-count'),
     label: '推荐列表',
     bulkBar: $('#newsongs-bulk'),
+  });
+  // 猜你喜欢 / 每日推荐：整表一次取回，无需翻页补全
+  bindSongListEvents($('#recommend-guess'), state.home.guessSel, () => state.home.guess);
+  bindSongListEvents($('#recommend-radar'), state.home.radarSel, () => state.home.radar);
+  bindBulkControls({
+    container: $('#recommend-guess'),
+    songs: () => state.home.guess,
+    sel: state.home.guessSel,
+    allSel: $('#guess-all'),
+    invertBtn: $('#guess-invert'),
+    downloadBtn: $('#guess-download'),
+    countEl: $('#guess-count'),
+    label: '猜你喜欢',
+    bulkBar: $('#guess-bulk'),
+  });
+  bindBulkControls({
+    container: $('#recommend-radar'),
+    songs: () => state.home.radar,
+    sel: state.home.radarSel,
+    allSel: $('#radar-all'),
+    invertBtn: $('#radar-invert'),
+    downloadBtn: $('#radar-download'),
+    countEl: $('#radar-count'),
+    label: '每日推荐',
+    bulkBar: $('#radar-bulk'),
   });
   bindBulkControls({
     container: $('#search-results'),
