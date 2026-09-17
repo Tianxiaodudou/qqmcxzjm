@@ -40,6 +40,8 @@ class SettingsRequest(BaseModel):
     # 目录来自飞牛原生文件夹选择器（选择即授权），此时放行"授权记录尚未可查询"的短暂窗口
     dir_from_picker: bool = False
     lyric_trans: bool | None = None
+    meta_full: bool | None = None
+    meta_json: bool | None = None
     interval_min_ms: int | None = None
     interval_max_ms: int | None = None
 
@@ -260,6 +262,10 @@ async def update_settings(payload: SettingsRequest, request: Request) -> dict[st
         settings["download_dir"] = str(_validate_dir(payload.download_dir, extra))
     if payload.lyric_trans is not None:
         settings["lyric_trans"] = bool(payload.lyric_trans)
+    if payload.meta_full is not None:
+        settings["meta_full"] = bool(payload.meta_full)
+    if payload.meta_json is not None:
+        settings["meta_json"] = bool(payload.meta_json)
     if payload.interval_min_ms is not None:
         settings["interval_min_ms"] = max(100, min(5000, int(payload.interval_min_ms)))
     if payload.interval_max_ms is not None:

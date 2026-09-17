@@ -1574,6 +1574,8 @@ async function loadSettingsInner({ force = false, background = false } = {}) {
 function applySettings() {
   const s = state.settings || {};
   $('#setting-lyric-trans').checked = !!s.lyric_trans;
+  $('#setting-meta-full').checked = s.meta_full !== false;
+  $('#setting-meta-json').checked = !!s.meta_json;
   renderDirOptions();
   $('#setting-interval-min').value = s.interval_min_ms || 300;
   $('#setting-interval-max').value = s.interval_max_ms || 800;
@@ -1622,6 +1624,8 @@ async function saveDownloadDirFromSelect() {
 async function saveSettings() {
   const payload = {
     lyric_trans: $('#setting-lyric-trans').checked,
+    meta_full: $('#setting-meta-full').checked,
+    meta_json: $('#setting-meta-json').checked,
     download_dir: $('#setting-download-dir').value.trim(),
     interval_min_ms: Number($('#setting-interval-min').value) || 300,
     interval_max_ms: Number($('#setting-interval-max').value) || 800,

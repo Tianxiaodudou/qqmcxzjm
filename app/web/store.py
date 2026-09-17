@@ -112,6 +112,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "download_dir": env.WIZARD_MEDIA_DIR or str(env.DATA_DIR / "downloads"),
     "interval_min_ms": env.DEFAULT_INTERVAL_MIN_MS,
     "interval_max_ms": env.DEFAULT_INTERVAL_MAX_MS,
+    "meta_full": env.DEFAULT_META_FULL,
+    "meta_json": env.DEFAULT_META_JSON,
 }
 
 

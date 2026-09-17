@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import random
@@ -10,6 +11,7 @@ import shutil
 import threading
 import time
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -79,6 +81,7 @@ class DownloadTask:
     output_ext: str = ""
     cover_embedded: bool = False
     lyric_embedded: bool = False
+    meta_field_count: int = 0
     status: str = DOWNLOADING
     fail_reason: str | None = None
     message: str = ""
@@ -131,6 +134,58 @@ class DownloadTask:
             for key, label in STAGES
         ]
         return data
+
+
+def build_meta(
+    *,
+    name: str,
+    singer: str,
+    album: str,
+    songmid: str,
+    songid: int,
+    detail: dict[str, Any],
+    extras: dict[str, Any],
+) -> dict[str, Any]:
+    """把歌曲详情 + 制作人/榜单等附加信息组装成 tagging 需要的 meta。"""
+    singers = [
+        str(item.get("name") or "").strip()
+        for item in (detail.get("singers") or [])
+        if isinstance(item, dict) and str(item.get("name") or "").strip()
+    ]
+    tag_items = [str(item).strip() for item in (extras.get("tags") or []) if str(item).strip()]
+    return {
+        "title": name or str(detail.get("title") or ""),
+        "subtitle": detail.get("subtitle"),
+        "artist": singer or "、".join(singers),
+        "album_artist": str(detail.get("singer") or "") or singer or "、".join(singers),
+        "album": album or str(detail.get("album") or ""),
+        "album_subtitle": detail.get("album_subtitle"),
+        "album_date": detail.get("album_date"),
+        "songmid": songmid,
+        "songid": songid,
+        "trans_name": detail.get("trans_name"),
+        "date": detail.get("date"),
+        "year": detail.get("year"),
+        "genre": detail.get("genre"),
+        "language": detail.get("language"),
+        "company": detail.get("company"),
+        "track_no": detail.get("track_no"),
+        "disc_no": detail.get("disc_no"),
+        "bpm": detail.get("bpm"),
+        "media_mid": detail.get("media_mid"),
+        "album_mid": detail.get("album_mid"),
+        "mv_id": detail.get("mv_id"),
+        "mv_vid": detail.get("mv_vid"),
+        "intro": detail.get("intro"),
+        "replaygain": detail.get("replaygain"),
+        "credits": extras.get("credits") or [],
+        "tags": "\n".join(tag_items),
+        "fav_show": extras.get("fav_show"),
+        "fav_count": extras.get("fav_count"),
+        "url": f"https://y.qq.com/n/ryqq/songDetail/{songmid}",
+        "tool": "QQ音乐下载器",
+        "comment": detail.get("intro") or "QQ音乐下载器",
+    }
 
 
 class DownloadManager:
@@ -486,7 +541,17 @@ class DownloadManager:
         if pmid:
             cover = await self._fetch_cover(pmid)
         runtime["cover"] = cover
-        task.set_stage("meta", None, 0.92, "整理元数据")
+        if bool(settings.get("meta_full", env.DEFAULT_META_FULL)):
+            task.set_stage("meta", None, 0.94, "获取制作人/榜单信息")
+            self._save()
+            try:
+                runtime["extras"] = await self._service.song_extras(
+                    task.songmid, int(task.songid or 0)
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.info("附加元数据获取失败：%s", security.sanitize_log(str(exc)))
+                runtime["extras"] = {}
+        task.set_stage("meta", None, 0.97, "整理元数据")
         task.cover_embedded = bool(cover)
         task.lyric_embedded = bool((lyric or {}).get("lyric"))
         task.set_stage("meta", DONE, 1.0, "")
@@ -590,22 +655,25 @@ class DownloadManager:
         self._save()
 
         detail = runtime.get("detail") or {}
+        extras = runtime.get("extras") or {}
         lyric = runtime.get("lyric") or {}
-        meta = {
-            "title": task.name,
-            "artist": task.singer,
-            "album": task.album or str(detail.get("album") or ""),
-            "songmid": task.songmid,
-            "songid": task.songid,
-            "comment": "QQ音乐下载器",
-        }
+        settings = store.load_settings()
+        meta = build_meta(
+            name=task.name,
+            singer=task.singer,
+            album=task.album,
+            songmid=task.songmid,
+            songid=task.songid,
+            detail=detail,
+            extras=extras,
+        )
 
         def report(value: float) -> None:
             # tagging 的 0~1 映射到本阶段的 0.35~1.0，避免进度条回退
             task.set_stage("merge", None, 0.35 + 0.65 * max(0.0, min(1.0, float(value))))
 
         try:
-            await asyncio.to_thread(
+            result = await asyncio.to_thread(
                 tagging.embed,
                 final,
                 meta,
@@ -616,6 +684,10 @@ class DownloadManager:
             )
         except Exception as exc:  # noqa: BLE001
             raise errors.UpstreamError(f"元数据写入失败：{exc}") from exc
+        written = list((result or {}).get("fields") or [])
+        task.meta_field_count = len(written)
+        if bool(settings.get("meta_json", env.DEFAULT_META_JSON)):
+            self._write_meta_sidecar(final, meta, detail, extras, lyric, written)
 
         task.output_path = str(final)
         task.output_name = final.name
@@ -641,9 +713,41 @@ class DownloadManager:
                 "encrypted": task.encrypted,
                 "cover": task.cover_embedded,
                 "lyric": task.lyric_embedded,
+                "meta_fields": task.meta_field_count,
                 "fail_reason": task.fail_reason,
             }
         )
+
+    def _write_meta_sidecar(
+        self,
+        audio: Path,
+        meta: dict[str, Any],
+        detail: dict[str, Any],
+        extras: dict[str, Any],
+        lyric: dict[str, Any],
+        written: list[str],
+    ) -> None:
+        """按需在音频旁写一份同名 .json，保存该歌曲 id 对应的完整元数据。"""
+        path = audio.with_suffix(".json")
+        payload = {
+            "source": "QQ音乐",
+            "generated_at": datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds"),
+            "songmid": meta.get("songmid"),
+            "songid": meta.get("songid"),
+            "url": meta.get("url"),
+            "fields": {k: v for k, v in meta.items() if v not in (None, "", [], {})},
+            "written_tags": written,
+            "detail": detail,
+            "extras": extras,
+            "lyric": {
+                "lyric": str(lyric.get("lyric") or ""),
+                "translation": str(lyric.get("translation") or ""),
+            },
+        }
+        try:
+            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        except OSError as exc:  # noqa: BLE001
+            logger.info("元数据 json 写入失败：%s", security.sanitize_log(str(exc)))
 
     def _cleanup_work(self, task_id: str) -> None:
         shutil.rmtree(env.DATA_DIR / WORK_DIR_NAME / task_id, ignore_errors=True)

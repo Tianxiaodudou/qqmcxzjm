@@ -295,6 +295,100 @@ class QQService:
             "sizes": sizes,
         }
 
+    @classmethod
+    def _named_text(cls, items: Any, sep: str = "、") -> str:
+        """把 info.genre / info.lan 这类 [{id,value}] 结构拼成文本。"""
+        if isinstance(items, str):
+            return items
+        if not isinstance(items, (list, tuple)):
+            items = [items]
+        names: list[str] = []
+        for item in items or []:
+            text = str(cls._field(item, "value", "name", "title") or "").strip()
+            if text and text not in names:
+                names.append(text)
+        return sep.join(names)
+
+    @classmethod
+    def _id_of(cls, items: Any) -> int:
+        """取 info.genre / info.lan 首个元素的数字 ID。"""
+        for item in items or []:
+            value = cls._field(item, "id", default=None)
+            if value not in (None, ""):
+                return cls._to_int(value)
+        return 0
+
+    def song_detail_meta(self, response: Any, track: Any) -> dict[str, Any]:
+        """歌曲详情中除基础信息外的发行 / 语言 / 曲目 / 公司等字段（全部来自该歌曲 ID）。"""
+        album = self._field(track, "album", default=None)
+        extras = self._field(response, "extras", default=None)
+        mv = self._field(track, "mv", default=None)
+        info = self._field(response, "info", default=None)
+        # 详情接口把 流派/语言/发行时间/公司/简介 放在响应根（或 info）里，取值两者都试
+        genre_items = self._field(response, "genre", default=None) or self._field(info, "genre", default=None)
+        lan_items = (
+            self._field(response, "lan", "language", default=None)
+            or self._field(info, "lan", "language", default=None)
+        )
+        company_item = self._field(response, "company", default=None) or self._field(info, "company", default=None)
+        company_item = company_item[0] if isinstance(company_item, list) and company_item else company_item
+        pub_time = self._named_text(self._field(response, "pub_time", "pubtime", default=None) or self._field(info, "pub_time", default=None), sep=" ")
+        intro = self._named_text(self._field(response, "intro", default=None) or self._field(info, "intro", default=None), sep="\n")
+        singers = self._field(track, "singer", "singers", default=[]) or []
+
+        cover_url = ""
+        getter = getattr(album, "cover_url", None)
+        if callable(getter):
+            try:
+                cover_url = str(getter(500) or "")
+            except Exception:  # noqa: BLE001
+                cover_url = ""
+
+        date = str(self._field(track, "time_public", default="")) or pub_time
+        album_date = str(self._field(album, "time_public", default=""))
+        vf = self._field(track, "vf", default=None) or []
+        replay: dict[str, Any] = {}
+        try:
+            numbers = [float(x) for x in vf]
+        except (TypeError, ValueError):
+            numbers = []
+        if len(numbers) >= 3 and (numbers[0] or numbers[1]):
+            replay = {"gain": round(numbers[0], 2), "peak": round(numbers[1], 4), "range": round(numbers[2], 2)}
+
+        mv_vid = str(self._field(mv, "vid", "mvid", default=""))
+        mv_id = self._to_int(self._field(mv, "id", default=0))
+        return {
+            "title": str(self._field(track, "title", "name", default="")),
+            "subtitle": str(self._field(track, "subtitle", default="")),
+            "singers": [
+                {"mid": str(self._field(item, "mid", default="")), "name": str(self._field(item, "name", "title", default=""))}
+                for item in singers
+            ],
+            "album_id": self._to_int(self._field(album, "id", default=0)),
+            "album_mid": str(self._field(album, "mid", default="")),
+            "album_subtitle": str(self._field(album, "subtitle", default="")),
+            "album_date": album_date,
+            "album_cover_url": cover_url,
+            "track_no": self._to_int(self._field(track, "index_album", default=0)),
+            "disc_no": self._to_int(self._field(track, "index_cd", default=0)),
+            "date": date,
+            "year": self._to_int(date[:4]) if date[:4].isdecimal() else 0,
+            "genre": self._named_text(genre_items) or str(self._field(track, "genre", default="")),
+            "genre_id": self._id_of(genre_items),
+            "language": self._named_text(lan_items) or str(self._field(track, "language", default="")),
+            "language_id": self._id_of(lan_items),
+            "company": self._named_text(company_item, sep="、"),
+            "company_id": self._to_int(self._field(company_item, "id", default=0)),
+            "bpm": self._to_int(self._field(track, "bpm", default=0)),
+            "mv_id": mv_id,
+            "mv_vid": mv_vid,
+            "trans_name": str(self._field(extras, "transname", "trans_name", default="")),
+            "intro": intro or str(self._field(extras, "intro", default="")),
+            "from": str(self._field(extras, "from", default="")),
+            "wiki_url": str(self._field(extras, "wikiurl", "wiki_url", default="")),
+            "replaygain": replay,
+        }
+
     def songlist_summary(self, item: Any) -> dict[str, Any]:
         return {
             "id": self._to_int(self._field(item, "id", "dissid", "tid", default=0)),
@@ -322,7 +416,96 @@ class QQService:
         track = self._field(response, "track", default=None)
         if track is None:
             return {}
-        return self.song_summary(track)
+        detail = self.song_summary(track)
+        detail.update(self.song_detail_meta(response, track))
+        if not detail.get("album_pmid"):
+            detail["album_pmid"] = str(self._field(self._field(track, "album", default=None), "pmid", default=""))
+        return detail
+
+    # 制作人 / 演奏角色：接口分组的 Title 优先，其次用已实测确认的 Type 兜底
+    PRODUCER_ROLE_NAMES: dict[int, str] = {
+        5: "作词",
+        6: "作曲",
+        7: "制作人",
+        8: "编曲",
+        9: "混音",
+        10: "录音",
+        13: "吉他",
+        14: "贝斯",
+        16: "鼓",
+        10000: "演唱",
+    }
+
+    def producer_credits(self, response: Any) -> list[dict[str, Any]]:
+        """归一化制作人名单：[{role, type, names: [...]}]。"""
+        credits: list[dict[str, Any]] = []
+        for group in self._field(response, "data", "Lst", default=[]) or []:
+            role_type = self._to_int(self._field(group, "type", "Type", default=0))
+            role = clean_text(self._field(group, "title", "Title", default="")) or self.PRODUCER_ROLE_NAMES.get(
+                role_type, ""
+            )
+            names: list[str] = []
+            for item in self._field(group, "producers", "Producers", default=[]) or []:
+                name = clean_text(self._field(item, "name", "Name", default=""))
+                if name and name not in names:
+                    names.append(name)
+            if role and names:
+                credits.append({"role": role, "type": role_type, "names": names})
+        return credits
+
+    def song_labels(self, response: Any) -> list[str]:
+        """归一化榜单 / 标签文案。"""
+        texts: list[str] = []
+        for item in self._field(response, "labels", "Labels", default=[]) or []:
+            text = clean_text(self._field(item, "tag_txt", "tagTxt", "text", default=""))
+            if text and text not in texts:
+                texts.append(text)
+        return texts
+
+    @classmethod
+    def _fav_numbers(cls, response: Any, songid: int) -> tuple[str, int]:
+        """从收藏响应里取出该歌曲的展示文案与原始值。"""
+        show = getattr(response, "show", None) or {}
+        numbers = getattr(response, "numbers", None) or {}
+        if not isinstance(show, dict):
+            show = cls._dump(show)
+        if not isinstance(numbers, dict):
+            numbers = cls._dump(numbers)
+        key = str(songid)
+        text = str(show.get(key) or (next(iter(show.values())) if show else "") or "")
+        raw = numbers.get(key) or (next(iter(numbers.values())) if numbers else 0)
+        return text, cls._to_int(raw)
+
+    async def song_extras(self, songmid: str = "", songid: int = 0) -> dict[str, Any]:
+        """歌曲附加元数据：制作人名单 / 榜单标签 / 收藏热度。
+
+        三个接口相互独立，任一失败只影响自身字段，不阻断下载流程。
+        """
+        result: dict[str, Any] = {"credits": [], "tags": [], "fav_show": "", "fav_count": 0}
+        jobs: list[tuple[str, Any]] = []
+        if songid:
+            jobs.append(("credits", self.call(lambda c: c.song.get_producer(songid))))
+            jobs.append(("labels", self.call(lambda c: c.song.get_labels(songid))))
+            jobs.append(("fav", self.call(lambda c: c.song.get_fav_num([songid]))))
+        elif songmid:
+            jobs.append(("credits", self.call(lambda c: c.song.get_producer(songmid))))
+        if not jobs:
+            return result
+        outcomes = await asyncio.gather(*(job for _, job in jobs), return_exceptions=True)
+        for (key, _), outcome in zip(jobs, outcomes):
+            if isinstance(outcome, BaseException):
+                logger.info("附加元数据 %s 获取失败：%s", key, security.sanitize_log(str(outcome)))
+                continue
+            try:
+                if key == "credits":
+                    result["credits"] = self.producer_credits(outcome)
+                elif key == "labels":
+                    result["tags"] = self.song_labels(outcome)
+                else:
+                    result["fav_show"], result["fav_count"] = self._fav_numbers(outcome, songid)
+            except Exception as exc:  # noqa: BLE001
+                logger.info("附加元数据 %s 解析失败：%s", key, security.sanitize_log(str(exc)))
+        return result
 
     async def song_lyric(self, value: int | str, trans: bool = True) -> dict[str, str]:
         response = await self.call(lambda c: c.lyric.get_lyric(value, trans=trans))

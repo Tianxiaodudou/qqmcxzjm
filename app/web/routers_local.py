@@ -160,6 +160,72 @@ async def local_stream(
 # --------------------------------------------------------------------------
 # 元数据 / 歌词 / 封面读取
 # --------------------------------------------------------------------------
+# 扩展元数据：label → 各容器可能的键名（ID3 帧 / MP4 自由字段 / Vorbis 键）
+EXTRA_TAGS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("副标题", ("subtitle", "TIT3", "----:com.apple.iTunes:SUBTITLE")),
+    ("译名", ("trans_name", "TXXX:TRANS_NAME", "----:com.apple.iTunes:TRANS_NAME")),
+    ("专辑发行时间", ("album_date", "TXXX:ALBUM_DATE", "----:com.apple.iTunes:ALBUM_DATE")),
+    ("专辑副标题", ("album_subtitle", "TXXX:ALBUM_SUBTITLE", "----:com.apple.iTunes:ALBUM_SUBTITLE")),
+    ("曲目号", ("tracknumber", "track_no", "TRCK", "trkn")),
+    ("碟号", ("discnumber", "disc_no", "TPOS", "disk")),
+    ("发行日期", ("date", "TDRC", "TYER", "originaldate", "TDOR", "year", "\xa9day")),
+    ("流派", ("genre", "TCON", "\xa9gen")),
+    ("语言", ("language", "TLAN", "----:com.apple.iTunes:LANGUAGE")),
+    ("唱片公司", ("organization", "company", "TPUB", "----:com.apple.iTunes:COMPANY")),
+    ("版权", ("copyright", "TCOP", "cprt")),
+    ("作词", ("lyricist", "TEXT", "----:com.apple.iTunes:LYRICIST")),
+    ("作曲", ("composer", "TCOM", "\xa9wrt")),
+    ("编曲", ("arranger", "TXXX:ARRANGER", "----:com.apple.iTunes:ARRANGER")),
+    ("制作人", ("producer", "TXXX:PRODUCER", "----:com.apple.iTunes:PRODUCER")),
+    ("混音", ("mixer", "TXXX:MIXER", "----:com.apple.iTunes:MIXER")),
+    ("录音", ("engineer", "TXXX:ENGINEER", "TXXX:RECORDING", "----:com.apple.iTunes:ENGINEER")),
+    ("演奏", ("performer", "TXXX:PERFORMER", "----:com.apple.iTunes:PERFORMER")),
+    ("制作名单", ("credits", "TXXX:CREDITS", "----:com.apple.iTunes:CREDITS")),
+    ("榜单/标签", ("qqmusic_tags", "TXXX:QQMUSIC_TAGS", "----:com.apple.iTunes:TAGS")),
+    ("歌曲简介", ("qqmusic_intro", "intro", "TXXX:INTRO", "----:com.apple.iTunes:INTRO")),
+    ("备注", ("comment", "COMM", "\xa9cmt")),
+    ("BPM", ("bpm", "TBPM", "tmpo")),
+    ("音量增益", ("replaygain_track_gain", "TXXX:REPLAYGAIN_TRACK_GAIN", "----:com.apple.iTunes:REPLAYGAIN_TRACK_GAIN")),
+    ("音量峰值", ("replaygain_track_peak", "TXXX:REPLAYGAIN_TRACK_PEAK", "----:com.apple.iTunes:REPLAYGAIN_TRACK_PEAK")),
+    ("音量范围", ("replaygain_track_range", "TXXX:REPLAYGAIN_TRACK_RANGE", "----:com.apple.iTunes:REPLAYGAIN_TRACK_RANGE")),
+    ("歌曲 ID", ("songmid", "TXXX:QQMUSIC_SONGMID", "TXXX:SONGMID", "----:com.apple.iTunes:SONGMID")),
+    ("歌曲数字 ID", ("songid", "TXXX:QQMUSIC_SONGID", "TXXX:SONGID", "----:com.apple.iTunes:SONGID")),
+    ("媒体 ID", ("media_mid", "TXXX:QQMUSIC_MEDIA_MID", "TXXX:MEDIA_MID", "----:com.apple.iTunes:MEDIA_MID")),
+    ("MV ID", ("mv_vid", "TXXX:QQMUSIC_MV_VID", "TXXX:MV_VID", "----:com.apple.iTunes:MV_VID")),
+    ("收藏热度", ("fav_show", "TXXX:FAV_SHOW", "----:com.apple.iTunes:FAV_SHOW")),
+    ("收藏数", ("fav_count", "TXXX:FAV_COUNT", "----:com.apple.iTunes:FAV_COUNT")),
+    ("歌曲链接", ("url", "TXXX:QQMUSIC_URL", "TXXX:URL", "----:com.apple.iTunes:URL")),
+    ("编码工具", ("tool", "TSSE", "\xa9too")),
+)
+
+
+def _label_text(label: str, value: str) -> str:
+    """把 MP4 数值字段（trkn/disk/tmpo）的原始列表文本整理成可读值。"""
+    if label in ("曲目号", "碟号"):
+        import re  # noqa: PLC0415
+
+        numbers = re.findall(r"\d+", value)
+        if numbers:
+            return f"{numbers[0]}/{numbers[1]}" if len(numbers) > 1 and numbers[1] != "0" else numbers[0]
+    if label == "BPM":
+        import re  # noqa: PLC0415
+
+        numbers = re.findall(r"\d+", value)
+        if numbers:
+            return numbers[0]
+    return value
+
+
+def _extra_fields(tags: Any) -> list[tuple[str, str]]:
+    """按顺序读取扩展标签，返回 (标签名, 值) 列表（空值跳过）。"""
+    out: list[tuple[str, str]] = []
+    for label, keys in EXTRA_TAGS:
+        value = _tag_value(tags, *keys)
+        if value:
+            out.append((label, _label_text(label, value)))
+    return out
+
+
 def _tag_value(tags: Any, *names: str) -> str:
     for name in names:
         try:
@@ -175,6 +241,11 @@ def _tag_value(tags: Any, *names: str) -> str:
         else:
             first = value
         text = getattr(first, "text", first)
+        if isinstance(text, tuple):
+            # MP4 的 trkn/disk 等为 (序号, 总数) 元组
+            text = "/".join(str(item) for item in text if item)
+        if isinstance(text, (bytes, bytearray)):
+            text = bytes(text).decode("utf-8", "replace")
         if isinstance(text, (list, tuple)):
             text = " / ".join(str(t) for t in text)
         text = str(text).strip()
@@ -198,6 +269,7 @@ def _read_tags(file: Path) -> dict[str, Any]:
         "bits": 0,
         "channels": 0,
         "bitrate": 0,
+        "extra": [],
     }
     try:
         from mutagen import File as MutagenFile
@@ -256,6 +328,7 @@ def _read_tags(file: Path) -> dict[str, Any]:
                     result["translation"] = str(text or "").strip()
                     if result["translation"]:
                         break
+        result["extra"] = _extra_fields(tags)
         # 内嵌封面
         pictures = getattr(audio, "pictures", None)
         if pictures:
@@ -332,6 +405,8 @@ async def local_meta(
         {"label": "内嵌歌词", "value": "有（%d 行）" % len([l for l in (tags["lyric"] or "").splitlines() if l.strip()]) if tags["lyric"] else "无"},
         {"label": "内嵌封面", "value": "有" if tags["cover"] else "无"},
     ]
+    for label, value in tags.get("extra") or []:
+        fields.append({"label": label, "value": value})
     cover = "cover" in str(tags["cover_mime"]).lower()
     return {
         "ok": True,

@@ -42,6 +42,10 @@ DEFAULT_LYRIC_TRANS = _env("QQMUSIC_LYRIC_TRANS", "true").lower() in {"1", "true
 # 下载节奏默认值（安装/配置向导可覆盖：wizard_interval_min_ms / wizard_interval_max_ms）
 DEFAULT_INTERVAL_MIN_MS = _env_int("QQMUSIC_INTERVAL_MIN_MS", 300, low=0, high=60000)
 DEFAULT_INTERVAL_MAX_MS = _env_int("QQMUSIC_INTERVAL_MAX_MS", 800, low=0, high=60000)
+# 完整元数据：额外拉取制作人名单 / 榜单标签 / 收藏热度等（多 3 次请求）
+DEFAULT_META_FULL = _env("QQMUSIC_META_FULL", "true").lower() in {"1", "true", "yes", "on"}
+# 是否在音频同目录额外保存同名 .json 元数据文件
+DEFAULT_META_JSON = _env("QQMUSIC_META_JSON", "false").lower() in {"1", "true", "yes", "on"}
 
 # 用户授权可访问的目录（fnOS 提供，冒号分隔）
 AUTHORIZED_PATHS = [p for p in _env("QQMUSIC_AUTHORIZED_PATHS", "").split(":") if p]

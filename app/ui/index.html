@@ -158,6 +158,22 @@
               <p class="hint">开启后元数据中同时保存原文与翻译歌词。</p>
             </div>
             <div class="field">
+              <label for="setting-meta-full">完整元数据</label>
+              <label class="switch">
+                <input type="checkbox" id="setting-meta-full" />
+                <span class="slider"></span>
+              </label>
+              <p class="hint">除标题 / 歌手 / 专辑 / 封面 / 歌词外，再写入曲目号、碟号、发行日期、流派、语言、唱片公司、歌曲简介、作词 / 作曲 / 编曲 / 制作人等制作名单、榜单与风格标签、ReplayGain 音量信息（每首歌多 3 次请求）。</p>
+            </div>
+            <div class="field">
+              <label for="setting-meta-json">同时保存 JSON 元数据</label>
+              <label class="switch">
+                <input type="checkbox" id="setting-meta-json" />
+                <span class="slider"></span>
+              </label>
+              <p class="hint">在音频文件旁额外生成同名 .json，保存该歌曲 ID 对应的完整元数据（含歌词原文与翻译）。</p>
+            </div>
+            <div class="field">
               <label for="setting-download-dir">下载目录（同时就是文件夹访问权限）</label>
               <div class="inline">
                 <select id="setting-download-dir"></select>
