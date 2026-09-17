@@ -71,6 +71,38 @@ body {
 .brand-name { font-size: 15px; font-weight: 600; }
 .brand-sub { font-size: 11px; color: var(--text-mute); }
 
+.brand-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--text-mute);
+}
+.brand-meta .bm-item { white-space: nowrap; }
+
+.link {
+  color: var(--primary);
+  text-decoration: none;
+  border-bottom: 1px dashed rgba(49, 194, 124, .5);
+  cursor: pointer;
+}
+.link:hover { color: #4ee39a; }
+
+.mono { font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace); }
+
+.wechat-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+.wechat-id { font-size: 15px; letter-spacing: .5px; flex: 1; user-select: all; }
+
 .nav { display: flex; flex-direction: column; gap: 4px; }
 
 .nav-item {

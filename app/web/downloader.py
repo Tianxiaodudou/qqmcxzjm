@@ -344,6 +344,35 @@ class DownloadManager:
         self._save()
         return removed
 
+    def _retire(self, task_id: str) -> None:
+        """任务成功后退出任务列表：记录已在「下载历史」里，列表不再保留卡片。"""
+        task = self._tasks.get(task_id)
+        if not task or task.status != TASK_SUCCESS:
+            return
+        self._tasks.pop(task_id, None)
+        self._order = [tid for tid in self._order if tid != task_id]
+        self._cleanup_work(task_id)
+        self._save()
+
+    @staticmethod
+    def _history_record(task: DownloadTask) -> dict[str, Any]:
+        """任务 → 下载历史记录（成功与旧数据迁移共用同一份字段）。"""
+        return {
+            "songmid": task.songmid,
+            "songid": task.songid,
+            "name": task.name,
+            "singer": task.singer,
+            "status": task.status,
+            "quality": task.quality,
+            "quality_label": task.quality_label,
+            "output": task.output_path,
+            "encrypted": task.encrypted,
+            "cover": task.cover_embedded,
+            "lyric": task.lyric_embedded,
+            "meta_fields": task.meta_field_count,
+            "fail_reason": task.fail_reason,
+        }
+
     # ---------------- 内部实现 ----------------
     def _ordered(self) -> list[DownloadTask]:
         return [self._tasks[tid] for tid in self._order if tid in self._tasks]
@@ -700,23 +729,11 @@ class DownloadManager:
         self._cleanup_work(task.id)
         self._save()
 
-        store.append_history(
-            {
-                "songmid": task.songmid,
-                "songid": task.songid,
-                "name": task.name,
-                "singer": task.singer,
-                "status": task.status,
-                "quality": task.quality,
-                "quality_label": task.quality_label,
-                "output": task.output_path,
-                "encrypted": task.encrypted,
-                "cover": task.cover_embedded,
-                "lyric": task.lyric_embedded,
-                "meta_fields": task.meta_field_count,
-                "fail_reason": task.fail_reason,
-            }
-        )
+        store.append_history(self._history_record(task))
+
+        # 完成即「退休」：成功记录只留在「下载历史」里，任务列表不再堆积已完成的卡片。
+        # 失败/中断的任务仍留在列表里，方便点「重试」。
+        self._retire(task.id)
 
     def _write_meta_sidecar(
         self,
@@ -785,6 +802,13 @@ class DownloadManager:
             try:
                 task = DownloadTask(**{k: v for k, v in item.items() if k in DownloadTask.__dataclass_fields__})
             except TypeError:
+                continue
+            if task.status == TASK_SUCCESS:
+                # 旧版本把「已完成」任务留在任务列表里：升级后不再展示，
+                # 历史里还没有这条记录时补一条，避免老记录凭空消失。
+                if not store.find_history(task.songmid):
+                    store.append_history(self._history_record(task))
+                self._cleanup_work(task.id)
                 continue
             self._tasks[task.id] = task
             self._order.append(task.id)

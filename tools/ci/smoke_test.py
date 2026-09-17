@@ -32,6 +32,35 @@ def check(name, fn, optional=False):
             fail += 1
 
 
+def _retire_case():
+    """v1.1.21：下载完成后任务退出「下载任务」，记录进「下载历史」。"""
+    from web import store as _store
+    from web.downloader import DownloadManager, TASK_SUCCESS
+    mgr = DownloadManager(None)
+    task = mgr.submit({'songmid': 'ci001', 'name': 'CI-retire', 'singer': 'x'})
+    task.status = TASK_SUCCESS
+    mgr._save()
+    _store.append_history(mgr._history_record(task))
+    mgr._retire(task.id)
+    left = [t['songmid'] for t in mgr.list_tasks()]
+    hist = [h['songmid'] for h in _store.load_history()]
+    assert left == [], left
+    assert 'ci001' in hist, hist
+    return (left, hist)
+
+
+def _retire_keeps_unfinished_case():
+    """失败/进行中的任务必须留在列表里（可重试）。"""
+    from web.downloader import DownloadManager
+    mgr = DownloadManager(None)
+    bad = mgr.submit({'songmid': 'ci002', 'name': 'CI-fail', 'singer': 'x'})
+    bad.status = 'failed'
+    mgr._retire(bad.id)
+    left = [t['songmid'] for t in mgr.list_tasks()]
+    assert left == ['ci002'], left
+    return left
+
+
 with TestClient(main.app) as client:
     check("status", lambda: client.get("/api/status").json())
     check("settings", lambda: client.get("/api/settings").json())
@@ -104,6 +133,10 @@ with TestClient(main.app) as client:
         lambda: len(client.get("/api/recommend/radar", params={"limit": 30}).json()["items"]),
         optional=True,
     )
+
+    # v1.1.21：完成任务退休（移出任务列表 -> 下载历史）
+    check("task-retire-on-success", _retire_case)
+    check("task-retire-keeps-unfinished", _retire_keeps_unfinished_case)
 
 print(f"SMOKE RESULT ok={ok} fail={fail}")
 sys.exit(1 if fail else 0)

@@ -59,6 +59,77 @@ function toast(message, type = 'info', duration = 3200) {
 }
 
 let loadingCount = 0;
+
+/* ---------------- 关于：开发者 / 发布者 ---------------- */
+const ABOUT = {
+  developer: { name: 'Tianxiaodudou', url: 'https://github.com/Tianxiaodudou' },
+  publisher: { name: 'A鱼儿', wechat: 'telegram96' },
+};
+
+/** 复制到剪贴板：飞牛窗口多是 http 环境（无 navigator.clipboard），带 execCommand 兜底 */
+async function copyText(text) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (err) { /* 继续走兜底 */ }
+  try {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand('copy');
+    area.remove();
+    return ok;
+  } catch (err) {
+    return false;
+  }
+}
+
+/**
+ * 发布者：弹窗展示微信号，并提供一键复制（不做微信客户端唤起）。
+ */
+function openPublisher() {
+  const modal = $('#modal-wechat');
+  const idEl = $('#wechat-id');
+  if (idEl) idEl.textContent = ABOUT.publisher.wechat;
+  if (modal) modal.classList.remove('hidden');
+  else toast(`发布者微信号：${ABOUT.publisher.wechat}`, 'success', 5000);
+}
+
+async function copyPublisherWechat() {
+  const id = ABOUT.publisher.wechat;
+  const ok = await copyText(id);
+  toast(ok ? `微信号 ${id} 已复制，打开微信搜索添加` : `微信号：${id}`, 'success', 4000);
+}
+
+/** 品牌区与设置页的开发者 / 发布者入口统一挂载 */
+function bindAbout() {
+  $$('[data-about="developer"]').forEach((el) => {
+    el.setAttribute('href', ABOUT.developer.url);
+    el.setAttribute('target', '_blank');
+    el.setAttribute('rel', 'noopener noreferrer');
+    el.textContent = ABOUT.developer.name;
+    el.title = `打开 GitHub 主页：${ABOUT.developer.url}`;
+  });
+  $$('[data-about="publisher"]').forEach((el) => {
+    el.textContent = ABOUT.publisher.name;
+    el.title = `微信号：${ABOUT.publisher.wechat}（点击查看并复制）`;
+    el.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      openPublisher();
+    });
+  });
+  $$('[data-about="publisher-wechat"]').forEach((el) => {
+    el.textContent = ABOUT.publisher.wechat;
+  });
+  on('#btn-copy-wechat', 'click', copyPublisherWechat);
+}
+
 function setLoading(on) {
   loadingCount = Math.max(0, loadingCount + (on ? 1 : -1));
   $('#global-loading').classList.toggle('hidden', loadingCount === 0);
@@ -1536,10 +1607,11 @@ function progressRow(label, state, progress, extra = '') {
 function renderTasks() {
   const items = state.tasks.items || [];
   const counts = state.tasks.counts || {};
-  $('#tasks-summary').textContent = `进行中 ${counts.running || 0} · 成功 ${counts.success || 0} · 失败 ${counts.failed || 0}`;
+  const success = counts.success || 0;
+  $('#tasks-summary').textContent = `进行中 ${counts.running || 0} · 失败 ${counts.failed || 0}${success ? ` · 成功 ${success}` : ''}`;
   const box = $('#task-list');
   if (!items.length) {
-    box.innerHTML = '<div class="empty">暂无下载任务，去首页挑选歌曲吧</div>';
+    box.innerHTML = '<div class="empty">暂无进行中的任务；下载完成的会自动进入「下载历史」</div>';
     return;
   }
   box.innerHTML = items
@@ -1572,12 +1644,30 @@ function renderTasks() {
     .join('');
 }
 
+/** 任务成功后后端会把它从「下载任务」移到「下载历史」，这里给一次提示并同步历史页 */
+function notifyRetired(before, next) {
+  const alive = new Set((next || []).map((t) => t.id));
+  const retired = (before || []).filter((t) => t.status === 'success' && !alive.has(t.id));
+  if (!retired.length) return;
+  const names = retired.map((t) => t.name || t.songmid).filter(Boolean);
+  toast(
+    names.length === 1
+      ? `「${names[0]}」下载完成，已移入下载历史`
+      : `${names.length} 首下载完成，已移入下载历史`,
+    'success'
+  );
+  if (state.view === 'history') loadHistory({ force: true, background: true });
+}
+
 async function refreshTasksInner() {
+  const before = state.tasks.items || [];
   try {
     const data = await api('/tasks');
-    state.tasks.items = data.tasks || [];
+    const next = data.tasks || [];
+    state.tasks.items = next;
     state.tasks.counts = data.counts || {};
     state.tasks.loadedAt = Date.now();
+    notifyRetired(before, next);
     if (state.view === 'tasks') renderTasks();
   } catch (err) {
     if (state.view === 'tasks') handleError(err, { silent: true });
@@ -2180,7 +2270,6 @@ function bindEvents() {
 
   bindSonglistCards($('#search-songlists'));
 
-  on('#btn-tasks-clear-finished', 'click', () => clearTasks('finished'));
   on('#btn-tasks-clear-all', 'click', () => clearTasks('all'));
 
   on('#btn-history-reload', 'click', loadHistory);
@@ -2307,6 +2396,7 @@ async function init() {
   document.body.classList.add('ready');
   bindModals();
   bindEvents();
+  bindAbout();
   Player.bind();
   initSdk();
   await refreshLoginStatus();

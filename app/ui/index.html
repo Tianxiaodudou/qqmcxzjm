@@ -14,6 +14,10 @@
         <div>
           <div class="brand-name">QQ音乐下载器</div>
           <div class="brand-sub">v<span id="app-version">1.0.0</span></div>
+          <div class="brand-meta">
+            <span class="bm-item">开发者 <a class="link" data-about="developer" href="https://github.com/Tianxiaodudou" target="_blank" rel="noopener noreferrer">Tianxiaodudou</a></span>
+            <span class="bm-item">发布者 <a class="link" data-about="publisher" href="#" role="button">A鱼儿</a></span>
+          </div>
         </div>
       </div>
 
@@ -198,7 +202,6 @@
             <h2>下载任务</h2>
             <div class="bulk-actions">
               <span class="muted" id="tasks-summary"></span>
-              <button class="btn btn-ghost" id="btn-tasks-clear-finished">清除已完成</button>
               <button class="btn btn-ghost" id="btn-tasks-clear-all">清空全部</button>
             </div>
           </div>
@@ -291,6 +294,15 @@
                 <input type="number" id="setting-home-radar" min="1" max="100" step="1" /> <span class="muted">首每日推荐</span>
               </div>
               <p class="hint">首页四个入口各自最多显示多少（默认 20 个歌单 / 30 首新歌 / 30 首猜你喜欢 / 50 首每日推荐）。这里只设上限，下限由 QQ音乐服务器决定：服务器只推了 10 首就显示 10 首，填得再大也不会凭空变多。</p>
+            </div>
+            <div class="field">
+              <label>关于</label>
+              <p class="hint">
+                开发者：<a class="link" data-about="developer" href="https://github.com/Tianxiaodudou" target="_blank" rel="noopener noreferrer">Tianxiaodudou</a>
+                （点击打开 GitHub 主页）
+                ｜ 发布者：<a class="link" data-about="publisher" href="#" role="button">A鱼儿</a>
+                （点击查看微信号 <span class="mono" data-about="publisher-wechat"></span>，可一键复制）
+              </p>
             </div>
             <button class="btn btn-primary" id="btn-save-settings">保存设置</button>
           </div>
@@ -396,6 +408,24 @@
         <div class="load-more hidden" id="songlist-more">
           <button class="btn btn-ghost" id="btn-songlist-more">加载更多</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 发布者微信号弹窗：只展示 + 一键复制，不做微信客户端唤起 -->
+  <div class="modal hidden" id="modal-wechat">
+    <div class="modal-card">
+      <header class="modal-head">
+        <h3>联系发布者</h3>
+        <button class="icon-btn" data-close="modal-wechat" title="关闭">✕</button>
+      </header>
+      <div class="modal-body">
+        <p class="hint">发布者：A鱼儿（添加时请说明来意）</p>
+        <div class="wechat-row">
+          <span class="mono wechat-id" id="wechat-id">telegram96</span>
+          <button class="btn btn-primary" id="btn-copy-wechat">复制微信号</button>
+        </div>
+        <p class="hint">在微信里搜索这个微信号即可添加。</p>
       </div>
     </div>
   </div>
