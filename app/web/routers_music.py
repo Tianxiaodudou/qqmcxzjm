@@ -93,35 +93,56 @@ async def search(
     return {"ok": True, "items": items, "page": page, "num": num}
 
 
+def _home_limit(key: str, fallback: int) -> int:
+    """首页推荐数量上限：优先用设置页里的值，读不到时退回内置默认。"""
+    try:
+        value = int(store.load_settings().get(key) or 0)
+    except Exception:  # noqa: BLE001 —— 设置损坏不该拖垮首页
+        value = 0
+    return value or fallback
+
+
 @router.get("/recommend/songlists")
 async def recommend_songlists(
     page: int = Query(1, ge=1),
     num: int = Query(12, ge=1, le=30),
+    limit: int | None = Query(None, ge=1, le=60, description="最多显示几个推荐歌单（缺省取设置）"),
 ) -> dict[str, Any]:
-    items = await service.recommend_songlists(page, num)
+    if limit is None:
+        limit = _home_limit("home_songlists_max", env.DEFAULT_HOME_SONGLISTS_MAX)
+    items = await service.recommend_songlists(page, num, limit=limit)
     return {"ok": True, "items": items, "page": page}
 
 
 @router.get("/recommend/newsongs")
-async def recommend_newsongs(type: int = Query(5)) -> dict[str, Any]:  # noqa: A002
-    items = await service.recommend_newsongs(type)
+async def recommend_newsongs(  # noqa: A002
+    type: int = Query(5),
+    limit: int | None = Query(None, ge=1, le=100, description="最多显示几首（缺省取设置）"),
+) -> dict[str, Any]:
+    if limit is None:
+        limit = _home_limit("home_newsongs_max", env.DEFAULT_HOME_NEWSONGS_MAX)
+    items = await service.recommend_newsongs(type, limit=limit)
     return {"ok": True, "items": items}
 
 
 @router.get("/recommend/guess")
 async def recommend_guess(
-    limit: int = Query(15, ge=5, le=60),
+    limit: int | None = Query(None, ge=1, le=60, description="最多显示几首（缺省取设置）"),
 ) -> dict[str, Any]:
     """猜你喜欢：QQ音乐按当前账号推送（登录后即为个人化结果）。"""
+    if limit is None:
+        limit = _home_limit("home_guess_max", env.DEFAULT_HOME_GUESS_MAX)
     items = await service.recommend_guess(limit=limit)
     return {"ok": True, "items": items}
 
 
 @router.get("/recommend/radar")
 async def recommend_radar(
-    limit: int = Query(30, ge=10, le=100),
+    limit: int | None = Query(None, ge=1, le=100, description="最多显示几首（缺省取设置）"),
 ) -> dict[str, Any]:
     """私人雷达（每日推荐）：QQ音乐每日按账号口味更新的个人电台。"""
+    if limit is None:
+        limit = _home_limit("home_radar_max", env.DEFAULT_HOME_RADAR_MAX)
     items = await service.recommend_radar(limit=limit)
     return {"ok": True, "items": items}
 

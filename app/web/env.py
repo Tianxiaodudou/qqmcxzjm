@@ -44,6 +44,11 @@ DEFAULT_INTERVAL_MIN_MS = _env_int("QQMUSIC_INTERVAL_MIN_MS", 300, low=0, high=6
 DEFAULT_INTERVAL_MAX_MS = _env_int("QQMUSIC_INTERVAL_MAX_MS", 800, low=0, high=60000)
 # 「全选」单次最多选中的歌曲数：点全选时前端最多把整张列表补全到这么多首
 DEFAULT_SELECT_MAX = _env_int("QQMUSIC_SELECT_MAX", 500, low=10, high=20000)
+# 首页推荐数量上限（默认值）：下限由 QQ 服务器实际推送数量决定，这里只做“最多显示多少”的截断
+DEFAULT_HOME_SONGLISTS_MAX = _env_int("QQMUSIC_HOME_SONGLISTS_MAX", 20, low=1, high=60)
+DEFAULT_HOME_NEWSONGS_MAX = _env_int("QQMUSIC_HOME_NEWSONGS_MAX", 30, low=1, high=100)
+DEFAULT_HOME_GUESS_MAX = _env_int("QQMUSIC_HOME_GUESS_MAX", 30, low=1, high=60)
+DEFAULT_HOME_RADAR_MAX = _env_int("QQMUSIC_HOME_RADAR_MAX", 50, low=1, high=100)
 # 完整元数据：额外拉取制作人名单 / 榜单标签 / 收藏热度等（多 3 次请求）
 DEFAULT_META_FULL = _env("QQMUSIC_META_FULL", "true").lower() in {"1", "true", "yes", "on"}
 # 是否在音频同目录额外保存同名 .json 元数据文件

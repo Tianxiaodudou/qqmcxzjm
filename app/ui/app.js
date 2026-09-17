@@ -401,6 +401,15 @@ function selectMax() {
   return Number.isFinite(value) && value > 0 ? value : SELECT_MAX_FALLBACK;
 }
 
+/* ---------------- 首页推荐数量上限（设置页可调） ---------------- */
+const HOME_LIMIT_FALLBACK = { songlists: 20, newsongs: 30, guess: 30, radar: 50 };
+
+/** 某一类首页推荐最多显示多少（设置值非法时退回默认）。 */
+function homeLimit(key) {
+  const value = Number((state.settings || {})[`home_${key}_max`]);
+  return Number.isFinite(value) && value >= 1 ? Math.round(value) : HOME_LIMIT_FALLBACK[key];
+}
+
 /* 上一次 fetchAllPages 是否因为触到「全选上限」而提前结束（供提示用） */
 let allPagesTruncated = false;
 
@@ -520,6 +529,10 @@ async function loadHomeInner({ force = false, background = false } = {}) {
     return;
   }
   state.home.loading = true;
+  // 推荐数量上限来自设置：冷启动时设置还没拉到就先取一次，避免首页按兜底上限展示
+  if (!state.settingsLoadedAt) {
+    try { await loadSettings(); } catch (err) { /* 取不到就按兜底上限 */ }
+  }
   if (!background) {
     renderSonglistCards($('#recommend-songlists'), [], '');
     $('#recommend-songlists').innerHTML = '<div class="empty">加载中…</div>';
@@ -529,10 +542,10 @@ async function loadHomeInner({ force = false, background = false } = {}) {
   }
   try {
     const [lists, songs, guess, radar] = await Promise.all([
-      api('/recommend/songlists', { query: { page: 1 } }),
-      api('/recommend/newsongs'),
-      fetchRecommendList('/recommend/guess'),
-      fetchRecommendList('/recommend/radar'),
+      api('/recommend/songlists', { query: { page: 1, limit: homeLimit('songlists') } }),
+      api('/recommend/newsongs', { query: { limit: homeLimit('newsongs') } }),
+      fetchRecommendList('/recommend/guess', homeLimit('guess')),
+      fetchRecommendList('/recommend/radar', homeLimit('radar')),
     ]);
     state.home.songlists = lists.items || [];
     state.home.newsongs = songs.items || [];
@@ -564,9 +577,9 @@ async function loadHomeInner({ force = false, background = false } = {}) {
  * 首页个性化推荐（猜你喜欢 / 每日推荐）：由 QQ音乐服务器按当前账号口味推送。
  * 失败不影响首页其它区块，只在该区块内提示。
  */
-async function fetchRecommendList(path) {
+async function fetchRecommendList(path, limit) {
   try {
-    const data = await api(path);
+    const data = await api(path, limit ? { query: { limit } } : undefined);
     return { items: data.items || [], error: '' };
   } catch (err) {
     if (err && err.code === 'not_logged_in') {
@@ -1806,6 +1819,11 @@ function applySettings() {
   $('#setting-interval-max').value = s.interval_max_ms || 800;
   const selectMaxInput = $('#setting-select-max');
   if (selectMaxInput) selectMaxInput.value = s.select_max || SELECT_MAX_FALLBACK;
+  const setHomeInput = (sel, key) => { const el = $(sel); if (el) el.value = homeLimit(key); };
+  setHomeInput('#setting-home-songlists', 'songlists');
+  setHomeInput('#setting-home-newsongs', 'newsongs');
+  setHomeInput('#setting-home-guess', 'guess');
+  setHomeInput('#setting-home-radar', 'radar');
 }
 
 /* 下载目录 = 已授权目录列表（选择与授权合并为一处） */
@@ -1867,9 +1885,25 @@ async function saveSettings() {
     return;
   }
   payload.select_max = Math.round(selectMaxInput);
+  // 首页四块推荐的数量上限：1 ~ 上限（下限交给 QQ 服务器：拿不到就少显示）
+  const homeFields = [
+    ['#setting-home-songlists', 'home_songlists_max', 1, 60, '推荐歌单'],
+    ['#setting-home-newsongs', 'home_newsongs_max', 1, 100, '新歌推荐'],
+    ['#setting-home-guess', 'home_guess_max', 1, 60, '猜你喜欢'],
+    ['#setting-home-radar', 'home_radar_max', 1, 100, '每日推荐'],
+  ];
+  for (const [selector, key, low, high, label] of homeFields) {
+    const value = Number($(selector).value);
+    if (!Number.isFinite(value) || value < low || value > high) {
+      toast(`${label}数量需在 ${low} ~ ${high} 之间`, 'warn');
+      return;
+    }
+    payload[key] = Math.round(value);
+  }
   try {
     const data = await withLoading(() => api('/settings', { method: 'POST', body: payload }));
     state.settings = data.settings || state.settings;
+    state.home.loadedAt = 0;   // 数量变了 → 下次进首页按新上限重新取
     toast('设置已保存', 'success');
   } catch (err) {
     handleError(err);

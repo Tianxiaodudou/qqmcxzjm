@@ -545,15 +545,46 @@ class QQService:
         }
         return {"info": info, "songs": [self.song_summary(s) for s in songs]}
 
-    async def recommend_songlists(self, page: int = 1, num: int = 12) -> list[dict[str, Any]]:
-        response = await self.call(lambda c: c.recommend.get_recommend_songlist(page=page, num=num))
-        raw = self._find_list(response, ("songlist", "songlists", "disslist", "list", "items"))
-        return [self.songlist_summary(i) for i in raw]
+    async def recommend_songlists(
+        self, page: int = 1, num: int = 12, limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        """推荐歌单：``num`` 为单页条数；给了 ``limit`` 就翻页凑到这个数量（服务器给多少算多少）。"""
+        if not limit:
+            response = await self.call(lambda c: c.recommend.get_recommend_songlist(page=page, num=num))
+            raw = self._find_list(response, ("songlist", "songlists", "disslist", "list", "items"))
+            return [self.songlist_summary(i) for i in raw]
+        target = max(1, min(60, int(limit)))
+        result: list[dict[str, Any]] = []
+        seen_ids: set[int] = set()
+        first_page = max(1, int(page or 1))
+        for page_no in range(first_page, first_page + 6):   # 单页最多 30 个，翻 6 页足够覆盖上限
+            if len(result) >= target:
+                break
+            want = max(1, min(30, target - len(result)))
+            response = await self.call(
+                lambda c, p=page_no, n=want: c.recommend.get_recommend_songlist(page=p, num=n)
+            )
+            raw = self._find_list(response, ("songlist", "songlists", "disslist", "list", "items"))
+            before = len(result)
+            for item in raw or []:
+                summary = self.songlist_summary(item)
+                key = int(summary.get("id") or 0)
+                if not key or key in seen_ids:
+                    continue
+                seen_ids.add(key)
+                result.append(summary)
+            if len(result) == before:   # 上游开始重复 → 再翻也不会更多
+                break
+        return result[:target]
 
-    async def recommend_newsongs(self, type_: int = 5) -> list[dict[str, Any]]:
+    async def recommend_newsongs(self, type_: int = 5, limit: int | None = None) -> list[dict[str, Any]]:
+        """新歌推荐：上游一次性返回，``limit`` 只做截断（服务器给得少就少显示）。"""
         response = await self.call(lambda c: c.recommend.get_recommend_newsong(type=type_))
         raw = self._find_list(response, ("song", "songs", "songlist", "list", "items"))
-        return [self.song_summary(s) for s in raw]
+        items = [self.song_summary(s) for s in raw]
+        if limit:
+            items = items[: max(1, min(100, int(limit)))]
+        return items
 
     def _recommend_append(self, items: list[dict[str, Any]], seen: set[str], raw: Any) -> None:
         """把一批上游歌曲归一化后追加（按 songmid 去重）。"""
@@ -565,16 +596,18 @@ class QQService:
             seen.add(songmid)
             items.append(summary)
 
-    async def recommend_guess(self, rounds: int = 3, limit: int = 15) -> list[dict[str, Any]]:
+    async def recommend_guess(self, limit: int = 15, rounds: int = 0) -> list[dict[str, Any]]:
         """猜你喜欢：服务器按当前账号推送。
 
         上游单次固定只给 5 首（``num`` 由服务端写死），但连续调用会持续给新歌，
-        因此多轮拉取并按 songmid 去重，凑出一屏可用的列表。
+        因此按目标数量多轮拉取并按 songmid 去重；``rounds`` 传 0 时按数量自动算轮数（最多 12 轮）。
         """
         target = max(1, min(60, int(limit or 15)))
+        auto_rounds = (target + 4) // 5
+        max_rounds = max(1, min(12, int(rounds) if rounds else auto_rounds))
         result: list[dict[str, Any]] = []
         seen: set[str] = set()
-        for _ in range(max(1, min(6, int(rounds or 3)))):
+        for _ in range(max_rounds):
             try:
                 response = await self.call(lambda c: c.recommend.get_guess_recommend())
             except Exception:  # noqa: BLE001 —— 已有结果时单轮失败不推翻整体
@@ -589,12 +622,17 @@ class QQService:
                 break   # 上游开始重复 → 再拉也不会更多
         return result[:target]
 
-    async def recommend_radar(self, pages: int = 3, limit: int = 30) -> list[dict[str, Any]]:
-        """私人雷达（QQ音乐每日推荐的个人电台）：每页 10 首，按需翻页去重。"""
+    async def recommend_radar(self, limit: int = 30, pages: int = 0) -> list[dict[str, Any]]:
+        """私人雷达（QQ音乐每日推荐的个人电台）：每页 10 首，按需翻页去重。
+
+        ``pages`` 传 0 时按目标数量自动算页数（最多 10 页）。
+        """
         target = max(1, min(100, int(limit or 30)))
+        auto_pages = (target + 9) // 10
+        max_pages = max(1, min(10, int(pages) if pages else auto_pages))
         result: list[dict[str, Any]] = []
         seen: set[str] = set()
-        for page in range(1, max(1, min(10, int(pages or 3))) + 1):
+        for page in range(1, max_pages + 1):
             try:
                 response = await self.call(
                     lambda c, p=page: c.recommend.get_radar_recommend(page=p)

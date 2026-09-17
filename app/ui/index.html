@@ -280,6 +280,18 @@
               </div>
               <p class="hint">点「全选 / 反选 / 下载选中」时，最多按整张列表补全到这么多首后生效（默认 500，最大 20000）。列表比这个还大时只处理前若干首，避免动辄几千首的列表卡住页面。</p>
             </div>
+            <div class="field">
+              <label>首页推荐数量上限（最多显示多少）</label>
+              <div class="inline">
+                <input type="number" id="setting-home-songlists" min="1" max="60" step="1" /> <span class="muted">个推荐歌单</span>
+                <input type="number" id="setting-home-newsongs" min="1" max="100" step="1" /> <span class="muted">首新歌</span>
+              </div>
+              <div class="inline">
+                <input type="number" id="setting-home-guess" min="1" max="60" step="1" /> <span class="muted">首猜你喜欢</span>
+                <input type="number" id="setting-home-radar" min="1" max="100" step="1" /> <span class="muted">首每日推荐</span>
+              </div>
+              <p class="hint">首页四个入口各自最多显示多少（默认 20 个歌单 / 30 首新歌 / 30 首猜你喜欢 / 50 首每日推荐）。这里只设上限，下限由 QQ音乐服务器决定：服务器只推了 10 首就显示 10 首，填得再大也不会凭空变多。</p>
+            </div>
             <button class="btn btn-primary" id="btn-save-settings">保存设置</button>
           </div>
         </section>

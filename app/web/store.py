@@ -115,6 +115,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "meta_full": env.DEFAULT_META_FULL,
     "meta_json": env.DEFAULT_META_JSON,
     "select_max": env.DEFAULT_SELECT_MAX,
+    "home_songlists_max": env.DEFAULT_HOME_SONGLISTS_MAX,
+    "home_newsongs_max": env.DEFAULT_HOME_NEWSONGS_MAX,
+    "home_guess_max": env.DEFAULT_HOME_GUESS_MAX,
+    "home_radar_max": env.DEFAULT_HOME_RADAR_MAX,
 }
 
 

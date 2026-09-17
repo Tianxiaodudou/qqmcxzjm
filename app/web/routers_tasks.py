@@ -45,6 +45,11 @@ class SettingsRequest(BaseModel):
     interval_min_ms: int | None = None
     interval_max_ms: int | None = None
     select_max: int | None = None
+    # 首页四块推荐各自的数量上限（下限交给 QQ 服务器：拿不到就少显示）
+    home_songlists_max: int | None = None
+    home_newsongs_max: int | None = None
+    home_guess_max: int | None = None
+    home_radar_max: int | None = None
 
 
 def _validate_dir(raw: str, extra_allowed: list[str] | None = None) -> Path:
@@ -276,5 +281,14 @@ async def update_settings(payload: SettingsRequest, request: Request) -> dict[st
     if payload.select_max is not None:
         # 「全选」单次上限：最少 10 首，最多 20000 首（防手滑填出天量翻页）
         settings["select_max"] = max(10, min(20000, int(payload.select_max)))
+    for key, low, high in (
+        ("home_songlists_max", 1, 60),     # 推荐歌单：最多显示几个（QQ 单页上限 30，可翻页）
+        ("home_newsongs_max", 1, 100),     # 新歌推荐：最多显示几首
+        ("home_guess_max", 1, 60),         # 猜你喜欢：最多显示几首
+        ("home_radar_max", 1, 100),        # 每日推荐（私人雷达）：最多显示几首
+    ):
+        value = getattr(payload, key)
+        if value is not None:
+            settings[key] = max(low, min(high, int(value)))
     store.save_settings(settings)
     return {"ok": True, "settings": settings}
