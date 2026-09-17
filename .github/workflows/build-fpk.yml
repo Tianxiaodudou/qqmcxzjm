@@ -56,19 +56,39 @@ jobs:
       - name: 确保生命周期脚本可执行
         run: chmod +x cmd/* wizard/* 2>/dev/null || true
 
+      - name: 读取版本号（用于资产命名）
+        id: ver
+        run: echo "version=$(python tools/ci/release_notes.py --print-version)" >> "$GITHUB_OUTPUT"
+
       - name: 构建 .fpk
-        run: fnpack build --directory .
+        run: |
+          fnpack build --directory .
+          ls -lh *.fpk
+
+      - name: FPK 按「版本号-应用名」重命名
+        run: |
+          mv qqmusic-downloader.fpk "${{ steps.ver.outputs.version }}-qqmusic-downloader.fpk"
+          ls -lh *.fpk
 
       - name: 校验产物内容
-        run: python tools/ci/inspect_fpk.py qqmusic-downloader.fpk
+        run: python tools/ci/inspect_fpk.py "${{ steps.ver.outputs.version }}-qqmusic-downloader.fpk"
+
+      - name: 打包源码全包（tar.gz）
+        run: |
+          git archive --format=tar.gz \
+            --prefix="qqmusic-downloader-${{ steps.ver.outputs.version }}/" \
+            -o "${{ steps.ver.outputs.version }}-qqmusic-downloader-src.tar.gz" HEAD
+          ls -lh *.tar.gz
 
       - name: 收集产物信息
-        run: ls -lh *.fpk
+        run: ls -lh *.fpk *.tar.gz
 
       - uses: actions/upload-artifact@v4
         with:
-          name: qqmusic-downloader-fpk
-          path: '*.fpk'
+          name: qqmusic-downloader-${{ steps.ver.outputs.version }}
+          path: |
+            *.fpk
+            *.tar.gz
           if-no-files-found: error
 
       - name: 生成发行说明（含提交记录与改动统计）
@@ -82,7 +102,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: '*.fpk'
+          files: |
+            *.fpk
+            *.tar.gz
           body_path: release-notes.md
 
       - name: 回写 CHANGELOG.md 与 README 版本号

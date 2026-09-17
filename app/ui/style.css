@@ -466,7 +466,75 @@ body.has-player { overflow: hidden; }
 
 .pw-side { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
 
-.pw-side audio { width: 100%; height: 40px; }
+/* 原生 audio 只负责播放，界面用下面的自绘控制条
+   （原生「⋮ → 下载」拿的是试听音质，容易误用） */
+.pw-side audio { display: none; }
+
+.pw-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: rgba(0, 0, 0, .18);
+}
+
+.pw-btn {
+  flex-shrink: 0; width: 30px; height: 30px; padding: 0; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-hover); color: var(--text);
+  font-size: 13px; cursor: pointer;
+  transition: background .2s, border-color .2s, color .2s;
+}
+
+.pw-btn:hover { border-color: var(--primary); color: var(--primary); }
+
+.pw-time {
+  flex-shrink: 0; min-width: 84px; text-align: center;
+  font-size: 11.5px; color: var(--text-mute); font-variant-numeric: tabular-nums;
+}
+
+.pw-range {
+  -webkit-appearance: none; appearance: none;
+  height: 4px; border-radius: 3px; background: var(--border);
+  cursor: pointer; outline: none;
+}
+
+.pw-range::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 12px; height: 12px; border: none; border-radius: 50%; background: var(--primary);
+}
+
+.pw-range::-moz-range-thumb {
+  width: 12px; height: 12px; border: none; border-radius: 50%; background: var(--primary);
+}
+
+.pw-seek { flex: 1; min-width: 60px; }
+.pw-vol { width: 68px; flex-shrink: 0; }
+
+.pw-more-wrap { position: relative; flex-shrink: 0; }
+
+.pw-more-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 30;
+  min-width: 210px; padding: 4px;
+  display: flex; flex-direction: column; gap: 2px;
+  background: var(--bg-card, var(--bg, #1b1b1d));
+  border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+}
+
+.pw-more-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 8px 10px; border: none; border-radius: 7px;
+  background: transparent; color: var(--text); font-size: 12.5px;
+  text-align: left; cursor: pointer;
+}
+
+.pw-more-item:hover { background: var(--bg-hover); color: var(--primary); }
+
+@media (max-width: 560px) {
+  .pw-time { min-width: 70px; font-size: 11px; }
+  .pw-vol { display: none; }
+}
 
 .pw-meta {
   font-size: 12.5px; color: var(--text-mute); line-height: 1.5;

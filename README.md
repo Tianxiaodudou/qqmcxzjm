@@ -1,6 +1,6 @@
 # QQ音乐下载器（fnOS 应用）
 
-**当前版本 v1.1.14**　·　[下载最新安装包](https://github.com/Tianxiaodudou/qqmcxzjm/releases/latest)　·　[更新日志](CHANGELOG.md)
+**当前版本 v1.1.15**　·　[下载最新安装包](https://github.com/Tianxiaodudou/qqmcxzjm/releases/latest)　·　[更新日志](CHANGELOG.md)
 
 运行在飞牛 fnOS 上的 QQ 音乐下载器：登录后浏览推荐与私有歌单、搜索单曲/歌单，边听边看同步歌词；下载时自动选用账号可用的最高音质，把加密音频解密还原并把歌名、歌手、专辑、封面与歌词写入文件，输出可直接播放的成品到 NAS 指定目录。
 
@@ -18,17 +18,17 @@
 | 登录 | 三种方式手动点选（不再自动出码）：QQ 扫码、微信扫码、手机号验证码；二维码可刷新重取；凭证保存在 `TRIM_PKGVAR` 下，权限 600 |
 | 歌单 | 推荐歌单、新歌推荐、自己的歌单与收藏（合并「我喜欢」与自建歌单）；支持批量勾选下载 |
 | 搜索 | 单曲搜索；类型切到「歌单」后可直接输入歌单名关键词，也可把**歌单链接或歌单 ID** 粘进搜索框，跳过搜索直接打开该歌单 |
-| 试听播放器 | 弹窗式播放器：封面 + 元数据 + 同步歌词（歌词可点击跳转，手动滚动即取消自动居中）+ 翻译歌词；音频走后端同源流代理，可随意拖动进度 |
-| 下载 | 串行队列，四阶段（音频 → 元数据 → 解密 → 合并）每项都有进度条与百分比；自动使用账号可用的最高音质并逐级降级；支持暂停 / 继续 / 重试 |
+| 试听播放器 | 弹窗式播放器：封面 + 元数据 + 同步歌词（歌词可点击跳转，手动滚动即取消自动居中）+ 翻译歌词；音频走后端同源流代理，可随意拖动进度；自绘控制条（播放/暂停、进度、音量、倍速）与「⋮」菜单，其中**下载走正式下载路径**（账号最高音质 + 同名文件去重 + 任务进度），不再下载试听音质 |
+| 下载 | 串行队列，四阶段（音频 → 元数据 → 解密 → 合并）每项都有进度条与百分比；自动使用账号可用的最高音质并逐级降级；支持暂停 / 继续 / 重试；**创建任务前先按成品文件名（`歌名_歌手_歌曲ID`）检查下载目录，已有同名成品就直接提示「已有该音乐文件」并跳过，不重复下载** |
 | 解密与成品 | 加密音频（`.mflac` / `.mgg`）整文件解密还原（与官方 QMC2 实现逐字节一致），内嵌歌名/歌手/专辑/封面/歌词，文件名 `歌名_歌手_歌曲ID`，下载目录只保留成品 |
 | 下载历史 | 成功/失败与原因；每行可「播放」已下载成品（读取文件内嵌标签与歌词）；「清除已完成」/「清空全部」点下即清，清空前自动备份 `history.json.bak` |
-| 性能 | 登录后空闲预取「我的歌单 / 下载历史 / 设置」，切页直接命中缓存（超过 60 秒才后台静默刷新）；封面按视口懒加载，首屏不再批量拉图 |
+| 性能 | 登录后空闲逐页预取**每个页面的首屏数据**（首页推荐 / 我的歌单 / 下载任务 / 下载历史，各取第一页），切页直接命中缓存（超过 60 秒才后台静默刷新）；封面按视口懒加载，首屏不再批量拉图 |
 | 设置 | 下载目录与文件夹访问权限合并为一处（点「选择文件夹…」走 fnOS 内嵌选择器，选中即授权；下拉可切换已授权目录）、歌词翻译开关、请求间隔上下限 |
 | 向导 | 安装向导（存储与权限说明 + 歌词翻译 + 下载间隔）、配置向导、卸载向导（可选保留或清除应用数据） |
 
 ## 安装
 
-1. 打开飞牛 fnOS「应用中心 → 手动安装」，选择 `qqmusic-downloader.fpk`。
+1. 打开飞牛 fnOS「应用中心 → 手动安装」，选择 Release 里的安装包 `版本号-qqmusic-downloader.fpk`（例如 `1.1.15-qqmusic-downloader.fpk`）。
 2. 安装向导中设置歌词翻译开关与请求间隔（安装向导没有文件夹选择器，下载目录改在应用内点选）。
 3. 安装完成后进入应用，在「设置 → 下载目录」点**选择文件夹…**，在飞牛内嵌文件夹选择器中点选一个文件夹：选择即授权（trim.file.userAccess），下载目录与访问权限一次搞定。
 4. 在「登录」页选择一种方式登录（未登录也可浏览推荐内容，但会受接口限流影响）。
@@ -36,7 +36,7 @@
 命令行安装（设备已开启 SSH）：
 
 ```bash
-appcenter-cli install-fpk qqmusic-downloader.fpk
+appcenter-cli install-fpk 1.1.15-qqmusic-downloader.fpk   # 换成实际下载到的文件名
 appcenter-cli start qqmusic-downloader
 ```
 
@@ -52,7 +52,7 @@ appcenter-cli start qqmusic-downloader
 curl -fL -o fnpack https://static2.fnnas.com/fnpack/fnpack-1.2.3-linux-amd64
 chmod +x fnpack && sudo mv fnpack /usr/local/bin/fnpack
 
-# 在项目根目录打包（产物为 qqmusic-downloader.fpk）
+# 在项目根目录打包（产物为 qqmusic-downloader.fpk，CI 会再重命名为「版本号-应用名」）
 fnpack build --directory .
 ```
 
@@ -63,8 +63,8 @@ Windows 用 `fnpack-1.2.3-windows-amd64`（重命名为 `fnpack.exe`）。
 `.github/workflows/build-fpk.yml` 会自动完成：
 
 1. **校验**：项目结构检查（`tools/ci/check_project.py`）、Python 语法检查、安装依赖（`app/requirements.txt`）、后端冒烟测试（`tools/ci/smoke_test.py`，依赖外部网络的用例仅告警）；打 tag 时还会校验 tag 与 `manifest` 的 `version` 一致。
-2. **打包**：下载官方 `fnpack`，执行 `fnpack build --directory .`，上传 `qqmusic-downloader.fpk` 为构建产物（artifact）。
-3. **发布**：推送形如 `v1.1.14` 的 tag 时，自动生成**发行说明**（`tools/ci/release_notes.py`，内容取自 `manifest` 的 `changelog` + 该版本提交记录与改动统计），把 `.fpk` 连说明一起写入 GitHub Release，并回写 `CHANGELOG.md` 与 README 的当前版本号。
+2. **打包**：下载官方 `fnpack`，执行 `fnpack build --directory .`；产物按「版本号-应用名」重命名（如 `1.1.15-qqmusic-downloader.fpk`），并额外生成该版本**源码全包** `版本号-qqmusic-downloader-src.tar.gz`（`git archive` 快照）。两者都作为构建产物（artifact）上传。
+3. **发布**：推送形如 `v1.1.15` 的 tag 时，自动生成**发行说明**（`tools/ci/release_notes.py`，内容取自 `manifest` 的 `changelog` + 该版本提交记录与改动统计），把重命名后的 `.fpk`、源码 `.tar.gz` 连说明一起写入 GitHub Release，并回写 `CHANGELOG.md` 与 README 的当前版本号。
 
 触发方式：push 到 `main`、提交 PR、打 tag，或在 Actions 页面手动 `Run workflow`。产物在对应运行记录的 Artifacts 中下载。
 
@@ -72,10 +72,10 @@ Windows 用 `fnpack-1.2.3-windows-amd64`（重命名为 `fnpack.exe`）。
 
 ```bash
 python tools/ci/check_project.py          # 结构与 JSON/资源引用检查
-python tools/ci/release_notes.py --tag v1.1.14   # 预览该版本发行说明（不写文件）
+python tools/ci/release_notes.py --tag v1.1.15   # 预览该版本发行说明（不写文件）
 pip install -r app/requirements.txt
 python tools/ci/smoke_test.py             # 后端接口冒烟
-python tools/ci/inspect_fpk.py qqmusic-downloader.fpk   # 打包产物内容/可执行位检查
+python tools/ci/inspect_fpk.py qqmusic-downloader.fpk   # 打包产物内容/可执行位检查（CI 里传入重命名后的文件名）
 ```
 
 > ⚠️ 注意：fnOS 要求 `cmd/*` 生命周期脚本带可执行位。Windows 工作树无法保存

@@ -36,6 +36,23 @@ STAGES: tuple[tuple[str, str], ...] = (
 
 WORK_DIR_NAME = "work"
 
+# 未写完的中间文件后缀：查重时忽略（它们不是可播放成品）
+PART_SUFFIXES = (".part", ".tmp", ".download", ".crdownload")
+
+
+def output_stem(name: str, singer: str, songmid: str) -> str:
+    """成品文件名（不含扩展名）：歌名_歌手_歌曲ID。
+
+    下载去重与实际写文件都走这里，保证两边算法一致。
+    """
+    return security.sanitize_filename(f"{name}_{singer}_{songmid}", fallback=songmid or "unnamed")
+
+
+def default_target_dir() -> Path:
+    """下载目录：设置里的自定义目录优先，否则数据目录下的 downloads。"""
+    settings = store.load_settings()
+    return Path(str(settings.get("download_dir") or "") or (env.DATA_DIR / "downloads"))
+
 
 @dataclass
 class DownloadTask:
@@ -187,6 +204,45 @@ class DownloadManager:
 
     def list_tasks(self) -> list[dict[str, Any]]:
         return [t.to_public() for t in self._ordered()]
+
+    def find_existing_outputs(
+        self,
+        songs: list[dict[str, Any]],
+        target_dir: Path | None = None,
+    ) -> dict[str, str]:
+        """去重：先算成品文件名，再看下载目录里有没有同名文件。
+
+        只比对文件名（不读内容、不改动磁盘），返回 ``{songmid: 已存在的成品路径}``。
+        """
+        result: dict[str, str] = {}
+        directory = target_dir or default_target_dir()
+        try:
+            if not directory.is_dir():
+                return result
+            files = [
+                item
+                for item in directory.iterdir()
+                if item.is_file() and item.suffix.lower() not in PART_SUFFIXES
+            ]
+        except OSError as exc:  # 目录不可读时不做去重，交给正常下载流程
+            logger.info("下载目录不可读，跳过去重：%s", security.sanitize_log(str(exc)))
+            return result
+        if not files:
+            return result
+        stems = {item.stem for item in files}
+        # 兜底：文件名以「_<歌曲ID>」结尾（例如改名后只剩 ID 部分）也算已下载
+        tail_ids = {item.stem.rsplit("_", 1)[-1] for item in files}
+
+        for song in songs:
+            songmid = str(song.get("songmid") or song.get("songid") or "")
+            if not songmid:
+                continue
+            stem = output_stem(
+                str(song.get("name") or ""), str(song.get("singer") or ""), songmid
+            )
+            if stem in stems or songmid in tail_ids:
+                result[songmid] = str(directory / stem)
+        return result
 
     def get(self, task_id: str) -> DownloadTask | None:
         return self._tasks.get(task_id)
@@ -512,7 +568,7 @@ class DownloadManager:
         task.set_stage("merge", DOWNLOADING, 0.05, "写出音频文件")
         self._save()
 
-        stem = security.sanitize_filename(f"{task.name}_{task.singer}_{task.songmid}", fallback=task.songmid)
+        stem = output_stem(task.name, task.singer, task.songmid)
         source = Path(str(runtime.get("decrypted") or ""))
         if not source.exists() and work_dir.is_dir():
             found = sorted(work_dir.glob("decrypted.*"))

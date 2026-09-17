@@ -129,8 +129,10 @@ def build_notes(version: str, tag: str, repo: str) -> str:
     out += [
         '---',
         '',
-        '📦 **安装 / 升级**：下载下方 `qqmusic-downloader.fpk`，在飞牛 **应用中心 → 手动安装 → 选择该文件** 即可'
-        '（保留数据升级，无需先卸载）。',
+        '📦 **安装 / 升级**：下载下方 `%s-qqmusic-downloader.fpk`，在飞牛 **应用中心 → 手动安装 → 选择该文件** 即可'
+        '（保留数据升级，无需先卸载）。' % version,
+        '',
+        '🧩 **源码全包**：`%s-qqmusic-downloader-src.tar.gz`（该版本完整源码快照，便于审计与自行构建）。' % version,
         '',
         '📖 **完整功能清单**：[README](https://github.com/%s#功能)　·　'
         '🧾 **历史版本**：[CHANGELOG](https://github.com/%s/blob/main/CHANGELOG.md)' % (repo, repo),
@@ -184,10 +186,14 @@ def main() -> int:
     ap.add_argument('--readme', default='')
     ap.add_argument('--changelog', default='')
     ap.add_argument('--check-only', action='store_true')
+    ap.add_argument('--print-version', action='store_true')
     ap.add_argument('--repo', default=os.environ.get('GITHUB_REPOSITORY', 'Tianxiaodudou/qqmcxzjm'))
     args = ap.parse_args()
 
     version = manifest_version()
+    if args.print_version:
+        print(version)
+        return 0
     tag = args.tag or ('v' + version)
     if tag.lstrip('v') != version:
         sys.exit('tag %s 与 manifest 版本 %s 不一致：请先更新 manifest 的 version/changelog' % (tag, version))

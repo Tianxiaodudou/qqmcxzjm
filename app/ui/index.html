@@ -191,7 +191,23 @@
         <div class="pw-top">
           <img class="pw-cover hidden" id="pw-cover" alt="" />
           <div class="pw-side">
-            <audio id="pw-audio" controls preload="metadata"></audio>
+            <!-- 自绘播放控制条：原生 <audio controls> 的「⋮ → 下载」拿的是试听音质，
+                 这里改成应用内正式下载（最高音质 + 同名文件去重 + 任务进度） -->
+            <div class="pw-bar">
+              <button class="pw-btn" id="pw-toggle" type="button" title="播放/暂停">▶</button>
+              <span class="pw-time" id="pw-time">00:00 / --:--</span>
+              <input class="pw-range pw-seek" id="pw-seek" type="range" min="0" max="1000" step="1" value="0" aria-label="播放进度" />
+              <button class="pw-btn" id="pw-mute" type="button" title="静音">🔊</button>
+              <input class="pw-range pw-vol" id="pw-vol" type="range" min="0" max="1" step="0.05" value="1" aria-label="音量" />
+              <div class="pw-more-wrap">
+                <button class="pw-btn" id="pw-more" type="button" title="更多" aria-haspopup="true">⋮</button>
+                <div class="pw-more-menu hidden" id="pw-more-menu">
+                  <button class="pw-more-item" type="button" data-pw-action="download">⬇ 下载（正式 · 最高音质）</button>
+                  <button class="pw-more-item" type="button" data-pw-action="speed">⏩ 播放速度 <span id="pw-speed">1×</span></button>
+                </div>
+              </div>
+            </div>
+            <audio id="pw-audio" preload="metadata"></audio>
             <div class="pw-meta" id="pw-meta"></div>
           </div>
         </div>

@@ -26,17 +26,17 @@ const on = (sel, ev, fn) => {
 const state = {
   view: 'home',
   loggedIn: false,
-  home: { songlists: [], newsongs: [], loading: false, sel: new Set() },
+  home: { songlists: [], newsongs: [], loading: false, sel: new Set(), loadedAt: 0 },
   search: { keyword: '', type: 'song', page: 1, items: [], songlists: [], sel: new Set(), loading: false, hasMore: false },
   fav: { songlists: [], songs: [], page: 1, sel: new Set(), loading: false, hasMore: false, loadedAt: 0 },
   songlist: { id: 0, info: {}, songs: [], page: 1, sel: new Set(), hasMore: false, loading: false },
-  tasks: { items: [], counts: {}, timer: null },
+  tasks: { items: [], counts: {}, timer: null, loadedAt: 0 },
   history: { items: [], record: new Map(), cache: new Map(), observer: null, timer: null, total: 0, loadedAt: 0 },
   settings: {},
   settingsLoadedAt: 0,
   qualities: [],
   login: { mode: '', sessionId: '', busy: false, timer: null },
-  player: { songmid: '', lyrics: [], index: -1, timer: null, ready: false },
+  player: { songmid: '', lyrics: [], index: -1, timer: null, ready: false, song: null },
 };
 
 /* ---------------- 基础工具 ---------------- */
@@ -162,14 +162,40 @@ function setLoggedIn(loggedIn) {
   if (!was && state.loggedIn) schedulePrefetch();   // 刚登录：空闲时预取各页数据
 }
 
-/** 闲时预加载：把「切页才开始请求」变成「切页直接显示」 */
-function schedulePrefetch() {
-  const run = () => {
+/** 闲时预加载：把「切页才开始请求」变成「切页直接显示」。
+ *  串行 + 间隔执行，避免并发打满；每个页面只取首屏（第一页）数据，不预取后续分页。 */
+async function prefetchAllViews() {
+  const FRESH_MS = 60000;
+  // 首屏初始加载可能还在路上：先等它落地再判断「新鲜度」，否则同一份数据会被请求两遍
+  const fresh = (loading, loadedAt) => !loading && !!loadedAt && Date.now() - loadedAt < FRESH_MS;
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline && (state.home.loading || state.fav.loading)) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  // 已经渲染过且数据新鲜（60 秒内）的页面不再重复请求，避免刚进首页又立刻打一遍接口
+  const steps = [
+    () => (fresh(state.home.loading, state.home.loadedAt) ? null : loadHome({ background: true })),        // 首页推荐（歌单第 1 页 + 新歌）
+    () => (fresh(state.fav.loading, state.fav.loadedAt) ? null : loadFav({ background: true })),           // 我的歌单（歌单列表 + 收藏第 1 页）
+    () => refreshTasks(),                                                              // 下载任务（本地队列状态，最轻）
+    () => (fresh(false, state.history.loadedAt) ? null : loadHistory({ background: true })),   // 下载历史
+    () => (fresh(false, state.settings.loadedAt) ? null : loadSettings({ background: true })), // 设置（含已授权目录）
+  ];
+  for (const step of steps) {
     if (!state.loggedIn) return;
-    loadFav({ background: true });        // 我的歌单
-    loadHistory({ background: true });    // 下载历史
-    loadSettings({ background: true });   // 设置（含已授权目录）
-  };
+    const task = step();
+    if (task) {
+      try {
+        await task;
+      } catch (err) {
+        /* 预取失败不影响使用：真正切到该页时会重新请求 */
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+}
+
+function schedulePrefetch() {
+  const run = () => { prefetchAllViews(); };
   if (window.requestIdleCallback) window.requestIdleCallback(run, { timeout: 3000 });
   else setTimeout(run, 1200);
 }
@@ -198,7 +224,9 @@ function switchView(view) {
   $$('.nav-item').forEach((btn) => btn.classList.toggle('active', btn.dataset.view === view));
   $$('.view').forEach((el) => el.classList.toggle('active', el.id === `view-${view}`));
   $('#view-title').textContent = VIEW_TITLES[view] || '';
-  if (view === 'tasks') renderTasks();
+  // 每个页面都走「有缓存先渲染、过期再后台刷新」，切页不再白屏等待
+  if (view === 'home') loadHome();
+  if (view === 'tasks') { renderTasks(); refreshTasks(); }
   if (view === 'history') loadHistory();
   if (view === 'settings') loadSettings();
   if (view === 'fav') loadFav();
@@ -350,10 +378,21 @@ async function createTasks(songs, { silent = false } = {}) {
   }
   try {
     const data = await withLoading(() => api('/tasks', { method: 'POST', body: { songs: payload } }));
-    if (!silent) toast(`已创建 ${data.created.length} 个下载任务`, 'success');
+    const created = data.created || [];
+    const skipped = data.skipped || [];
+    if (skipped.length) {
+      // 下载目录里已有同名成品：不重复下载，直接告知
+      const names = skipped.map((s) => s.name || s.songmid).join('、');
+      toast(`已有该音乐文件：${names}`, 'warn', Math.min(9000, 3000 + skipped.length * 300));
+    }
+    if (created.length) {
+      if (!silent) toast(`已创建 ${created.length} 个下载任务`, 'success');
+    } else if (!skipped.length && !silent) {
+      toast('未创建任何下载任务', 'warn');
+    }
     await refreshTasks();
     updateTaskBadge();
-    return data.created;
+    return created;
   } catch (err) {
     handleError(err);
     return [];
@@ -361,11 +400,37 @@ async function createTasks(songs, { silent = false } = {}) {
 }
 
 /* ---------------- 首页推荐 ---------------- */
-async function loadHome() {
+/** 同一页面的在途请求合并：init 切页与闲时预取几乎同时触发时，只发一次请求。 */
+const inflightLoads = new Map();
+function onceLoad(key, fn) {
+  const running = inflightLoads.get(key);
+  if (running) return running;
+  const task = Promise.resolve()
+    .then(fn)
+    .finally(() => inflightLoads.delete(key));
+  inflightLoads.set(key, task);
+  return task;
+}
+
+function loadHome(opts) { return onceLoad('home', () => loadHomeInner(opts)); }
+function loadFav(opts) { return onceLoad('fav', () => loadFavInner(opts)); }
+function loadHistory(opts) { return onceLoad('history', () => loadHistoryInner(opts)); }
+function loadSettings(opts) { return onceLoad('settings', () => loadSettingsInner(opts)); }
+function refreshTasks() { return onceLoad('tasks', () => refreshTasksInner()); }
+
+async function loadHomeInner({ force = false, background = false } = {}) {
+  // 缓存优先：已有数据立即渲染（切页秒开），仅在后台静默刷新过期数据
+  if (!force && !background && state.home.loadedAt) {
+    renderHome();
+    if (Date.now() - state.home.loadedAt > 60000) loadHome({ force: true, background: true });
+    return;
+  }
   state.home.loading = true;
-  renderSonglistCards($('#recommend-songlists'), [], '');
-  $('#recommend-songlists').innerHTML = '<div class="empty">加载中…</div>';
-  renderSongSkeleton($('#recommend-newsongs'));
+  if (!background) {
+    renderSonglistCards($('#recommend-songlists'), [], '');
+    $('#recommend-songlists').innerHTML = '<div class="empty">加载中…</div>';
+    renderSongSkeleton($('#recommend-newsongs'));
+  }
   try {
     const [lists, songs] = await Promise.all([
       api('/recommend/songlists', { query: { page: 1 } }),
@@ -373,13 +438,13 @@ async function loadHome() {
     ]);
     state.home.songlists = lists.items || [];
     state.home.newsongs = songs.items || [];
-    if (!state.home.songlists.length && !state.home.newsongs.length) {
+    state.home.loadedAt = Date.now();
+    if (!state.home.songlists.length && !state.home.newsongs.length && !background) {
       await refreshLoginStatus();
     }
-    renderSonglistCards($('#recommend-songlists'), state.home.songlists, '暂无推荐歌单');
-    renderSongList($('#recommend-newsongs'), state.home.newsongs, state.home.sel, '暂无推荐新歌');
-    updateBulkBar($('#newsongs-all'), $('#newsongs-invert'), null, state.home.sel, state.home.newsongs);
+    renderHome();
   } catch (err) {
+    if (background) return;   // 静默预取失败：保留现有界面，等真正切页时再取
     handleError(err, { silent: err.code === 'not_logged_in' });
     if (err.code === 'not_logged_in') {
       $('#recommend-songlists').innerHTML = '<div class="empty">登录后可查看推荐歌单</div>';
@@ -391,6 +456,13 @@ async function loadHome() {
   } finally {
     state.home.loading = false;
   }
+}
+
+/** 用 state.home 渲染首页（缓存命中时也走这里） */
+function renderHome() {
+  renderSonglistCards($('#recommend-songlists'), state.home.songlists, '暂无推荐歌单');
+  renderSongList($('#recommend-newsongs'), state.home.newsongs, state.home.sel, '暂无推荐新歌');
+  updateBulkBar($('#newsongs-all'), $('#newsongs-invert'), null, state.home.sel, state.home.newsongs);
 }
 
 /* ---------------- 搜索 ---------------- */
@@ -461,7 +533,7 @@ async function loadSearch({ reset = false } = {}) {
 }
 
 /* ---------------- 我的歌单（收藏） ---------------- */
-async function loadFav({ force = false, background = false } = {}) {
+async function loadFavInner({ force = false, background = false } = {}) {
   if (!state.loggedIn) {
     $('#fav-songlists').innerHTML = '<div class="empty">请先登录</div>';
     renderSongList($('#fav-songs'), [], state.fav.sel, '请先登录');
@@ -721,6 +793,8 @@ async function logout() {
     setLoggedIn(false);
     state.home.songlists = [];
     state.home.newsongs = [];
+    state.home.loadedAt = 0;
+    state.tasks.loadedAt = 0;
     toast('已退出登录', 'success');
     switchView('home');
     loadHome();
@@ -765,6 +839,86 @@ const Player = (() => {
   const audio = () => el('pw-audio');
   const box = () => el('pw-lrc');
   const hint = (text) => { const h = el('pw-hint'); if (h) h.textContent = text || ''; };
+
+  /* ---- 自绘控制条 ---- */
+  const SPEEDS = [1, 1.25, 1.5, 2, 0.75];
+  let speedIndex = 0;
+  let dragging = false;
+
+  function syncPlayButton() {
+    const a = audio();
+    const btn = el('pw-toggle');
+    if (!a || !btn) return;
+    const playing = !a.paused && !a.ended && !!a.currentSrc;
+    btn.textContent = playing ? '❚❚' : '▶';
+    btn.title = playing ? '暂停' : '播放';
+  }
+
+  function syncTime() {
+    const a = audio();
+    if (!a) return;
+    const dur = Number.isFinite(a.duration) ? a.duration : 0;
+    const cur = Number(a.currentTime) || 0;
+    const seek = el('pw-seek');
+    if (seek && !dragging) seek.value = dur ? String(Math.round((cur / dur) * 1000)) : '0';
+    const label = el('pw-time');
+    if (label) label.textContent = `${fmtClock(cur)} / ${dur ? fmtClock(dur) : '--:--'}`;
+  }
+
+  function syncMute() {
+    const a = audio();
+    if (!a) return;
+    const vol = el('pw-vol');
+    if (vol && Number(vol.value) !== a.volume) vol.value = String(a.volume);
+    const btn = el('pw-mute');
+    if (btn) {
+      const silent = a.muted || a.volume === 0;
+      btn.textContent = silent ? '🔇' : '🔊';
+      btn.title = silent ? '取消静音' : '静音';
+    }
+  }
+
+  function toggleMenu(force) {
+    const menu = el('pw-more-menu');
+    if (!menu) return;
+    const show = force === undefined ? menu.classList.contains('hidden') : !!force;
+    menu.classList.toggle('hidden', !show);
+  }
+
+  function cycleSpeed() {
+    speedIndex = (speedIndex + 1) % SPEEDS.length;
+    const rate = SPEEDS[speedIndex];
+    const a = audio();
+    if (a) a.playbackRate = rate;
+    const label = el('pw-speed');
+    if (label) label.textContent = `${rate}×`;
+  }
+
+  function resetControls() {
+    const a = audio();
+    speedIndex = 0;
+    dragging = false;
+    if (a) { a.playbackRate = 1; a.volume = 1; a.muted = false; }
+    const speed = el('pw-speed');
+    if (speed) speed.textContent = '1×';
+    const vol = el('pw-vol');
+    if (vol) vol.value = '1';
+    toggleMenu(false);
+    syncTime();
+    syncPlayButton();
+    syncMute();
+  }
+
+  /* 弹窗里的「下载」：走应用内正式下载（账号最高音质 + 同名文件去重 + 任务进度） */
+  async function downloadCurrent() {
+    toggleMenu(false);
+    const song = state.player.song;
+    if (!song || !song.songmid) {
+      toast('暂无可下载的歌曲信息，请稍候重试', 'warn');
+      return;
+    }
+    await createTasks([song]);
+  }
 
   function syncHint() {
     if (!lines.length) { hint('同步歌词：该音频未内嵌时间轴歌词（不可同步高亮）'); return; }
@@ -848,6 +1002,7 @@ const Player = (() => {
     follow = true;
     progScroll = false;
     lastIndex = -1;
+    resetControls();
   }
 
   function open(opts = {}) {
@@ -861,6 +1016,7 @@ const Player = (() => {
     hint(opts.hint || '正在准备音频…');
     el('modal-player').classList.remove('hidden');
     document.body.classList.add('has-player');
+    resetControls();
     if (opts.src) play(opts.src);
   }
 
@@ -880,6 +1036,8 @@ const Player = (() => {
     if (opts.lines) { lines = opts.lines; renderLyric(); }
     if (opts.hint) hint(opts.hint);
     if (opts.src) play(opts.src);
+    syncTime();
+    syncPlayButton();
   }
 
   function bind() {
@@ -913,6 +1071,78 @@ const Player = (() => {
       if (progScroll) return;
       if (follow) { follow = false; syncHint(); }
     });
+
+    /* ---- 自绘控制条 ---- */
+    a.addEventListener('play', syncPlayButton);
+    a.addEventListener('pause', syncPlayButton);
+    a.addEventListener('ended', syncPlayButton);
+    a.addEventListener('timeupdate', syncTime);
+    a.addEventListener('durationchange', syncTime);
+    a.addEventListener('loadedmetadata', () => { syncTime(); syncMute(); });
+    a.addEventListener('emptied', () => { syncTime(); syncPlayButton(); });
+
+    const toggle = el('pw-toggle');
+    if (toggle) toggle.addEventListener('click', () => {
+      if (a.paused) {
+        const p = a.play();
+        if (p && p.catch) p.catch(() => hint('浏览器阻止了自动播放：请再点一次播放按钮'));
+      } else {
+        a.pause();
+      }
+    });
+
+    const seek = el('pw-seek');
+    if (seek) {
+      seek.addEventListener('input', () => {
+        dragging = true;
+        const dur = Number.isFinite(a.duration) ? a.duration : 0;
+        const label = el('pw-time');
+        if (dur && label) label.textContent = `${fmtClock((Number(seek.value) / 1000) * dur)} / ${fmtClock(dur)}`;
+      });
+      const commit = () => {
+        const dur = Number.isFinite(a.duration) ? a.duration : 0;
+        if (dur) {
+          try { a.currentTime = (Number(seek.value) / 1000) * dur; } catch (e) {}
+        }
+        dragging = false;
+        syncTime();
+      };
+      seek.addEventListener('change', commit);
+      seek.addEventListener('pointerup', commit);
+    }
+
+    const vol = el('pw-vol');
+    if (vol) vol.addEventListener('input', () => {
+      a.volume = Math.max(0, Math.min(1, Number(vol.value)));
+      a.muted = false;
+      syncMute();
+    });
+
+    const mute = el('pw-mute');
+    if (mute) mute.addEventListener('click', () => {
+      a.muted = !a.muted;
+      syncMute();
+    });
+
+    const more = el('pw-more');
+    if (more) more.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      toggleMenu();
+    });
+
+    const menu = el('pw-more-menu');
+    if (menu) menu.addEventListener('click', (ev) => {
+      const item = ev.target.closest('[data-pw-action]');
+      if (!item) return;
+      const action = item.dataset.pwAction;
+      if (action === 'download') downloadCurrent();
+      else if (action === 'speed') cycleSpeed();
+    });
+
+    /* 点空白处收起「⋮」菜单 */
+    document.addEventListener('click', (ev) => {
+      if (!ev.target.closest('.pw-more-wrap')) toggleMenu(false);
+    });
   }
 
   function close() {
@@ -923,8 +1153,10 @@ const Player = (() => {
     document.body.classList.remove('has-player');
     state.player.songmid = '';
     state.player.lyrics = [];
+    state.player.song = null;
     lines = [];
     els = [];
+    resetControls();
   }
 
   return { open, update, close, bind, hint, setCover };
@@ -936,6 +1168,14 @@ async function openPlayer(songmid, songList = []) {
   const cached = (songList || []).find((s) => s.songmid === songmid) || {};
   state.player.songmid = songmid;
   state.player.list = songList || [];
+  /* 弹窗「⋮ → 下载」用：先放列表里的信息，拿到详情后再补全 */
+  state.player.song = {
+    songmid,
+    songid: cached.songid || 0,
+    name: cached.name || '',
+    singer: cached.singer || '',
+    album_pmid: cached.album_pmid || '',
+  };
   Player.open({
     title: cached.name || '加载中…',
     meta: cached.singer || '',
@@ -954,6 +1194,14 @@ async function openPlayer(songmid, songList = []) {
       api('/song/url', { method: 'POST', body: { songmid } }),
     ]);
     const song = detail.song || cached || {};
+    /* 供弹窗「⋮ → 下载」使用：正式下载（最高音质）需要歌名/歌手/ID */
+    state.player.song = {
+      songmid,
+      songid: song.songid || cached.songid || 0,
+      name: song.name || cached.name || '',
+      singer: song.singer || cached.singer || '',
+      album_pmid: song.album_pmid || cached.album_pmid || '',
+    };
     const q = urlData.quality_label || urlData.quality || '默认';
     const cover = song.album_pmid ? coverUrl(song.album_pmid) : '';
     Player.update({
@@ -993,6 +1241,12 @@ async function playLocal(songmid) {
     const merged = mergeTranslation(parseLrc(data.lyric), parseLrc(data.translation));
     state.player.songmid = songmid;
     state.player.lyrics = merged;
+    state.player.song = {
+      songmid,
+      name: data.name || data.title || '',
+      singer: data.singer || '',
+      album_pmid: '',
+    };
     Player.open({
       title: data.name || data.title || songmid,
       meta: data.meta || '',
@@ -1080,11 +1334,12 @@ function renderTasks() {
     .join('');
 }
 
-async function refreshTasks() {
+async function refreshTasksInner() {
   try {
     const data = await api('/tasks');
     state.tasks.items = data.tasks || [];
     state.tasks.counts = data.counts || {};
+    state.tasks.loadedAt = Date.now();
     if (state.view === 'tasks') renderTasks();
   } catch (err) {
     if (state.view === 'tasks') handleError(err, { silent: true });
@@ -1181,7 +1436,7 @@ function historyRowHtml(item) {
     </tr>`;
 }
 
-async function loadHistory({ force = false, background = false } = {}) {
+async function loadHistoryInner({ force = false, background = false } = {}) {
   const box = $('#history-body');
   // 缓存优先：已有数据立即渲染（切页秒开），过期数据后台静默刷新
   if (!force && !background && state.history.loadedAt) {
@@ -1296,7 +1551,7 @@ async function clearHistory() {
 }
 
 /* ---------------- 设置 ---------------- */
-async function loadSettings({ force = false, background = false } = {}) {
+async function loadSettingsInner({ force = false, background = false } = {}) {
   // 缓存优先：已有数据就立即渲染（切页秒开），仅在后台静默刷新过期数据
   if (!force && !background && state.settingsLoadedAt) {
     applySettings();

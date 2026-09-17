@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Query, Request
 from pydantic import BaseModel, Field
 
-from . import env, errors, fnos_api, security, store
+from . import downloader, env, errors, fnos_api, security, store
 from .context import manager
 
 logger = logging.getLogger("qqmusic.api.tasks")
@@ -130,9 +130,28 @@ async def create_tasks(payload: BatchRequest) -> dict[str, Any]:
         raise errors.BadRequestError("请先选择歌曲")
     if len(songs) > MAX_BATCH:
         raise errors.BadRequestError(f"单次最多创建 {MAX_BATCH} 个任务")
+    # 去重：下载目录里已有同名成品就不再下载，直接提示「已有该音乐文件」
+    target_dir = downloader.default_target_dir()
+    existing = manager.find_existing_outputs(songs, target_dir)
+    fresh: list[dict[str, Any]] = []
+    skipped: list[dict[str, str]] = []
+    for song in songs:
+        songmid = str(song.get("songmid") or song.get("songid") or "")
+        hit = existing.get(songmid)
+        if hit:
+            skipped.append(
+                {"songmid": songmid, "name": str(song.get("name") or songmid), "path": hit}
+            )
+        else:
+            fresh.append(song)
     # 音质无需指定：下载时自动选用登录账号可用的最高音质
-    created = manager.create_batch(songs)
-    return {"ok": True, "created": [t.to_public() for t in created]}
+    created = manager.create_batch(fresh)
+    return {
+        "ok": True,
+        "created": [t.to_public() for t in created],
+        "skipped": skipped,
+        "download_dir": str(target_dir),
+    }
 
 
 @router.post("/tasks/{task_id}/retry")
