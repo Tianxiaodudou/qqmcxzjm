@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Query, Request
 from pydantic import BaseModel, Field
 
-from . import downloader, env, errors, fnos_api, security, store
+from . import downloader, env, errors, fnos_api, notify, security, store
 from .context import manager
 
 logger = logging.getLogger("qqmusic.api.tasks")
@@ -50,6 +50,13 @@ class SettingsRequest(BaseModel):
     home_newsongs_max: int | None = None
     home_guess_max: int | None = None
     home_radar_max: int | None = None
+    # 消息推送（飞牛统一推送服务：POST {base}/api/push，Bearer token）
+    push_base: str | None = None
+    push_token: str | None = None
+    push_on_success: bool | None = None
+    push_on_fail: bool | None = None
+    push_on_dup: bool | None = None
+    push_on_expire: bool | None = None
 
 
 def _validate_dir(raw: str, extra_allowed: list[str] | None = None) -> Path:
@@ -149,6 +156,11 @@ async def create_tasks(payload: BatchRequest) -> dict[str, Any]:
         if hit:
             skipped.append(
                 {"songmid": songmid, "name": str(song.get("name") or songmid), "path": hit}
+            )
+            notify.notify_duplicate(
+                str(song.get("name") or songmid),
+                f"下载目录已有同名文件，已跳过：{hit}",
+                songmid,
             )
         else:
             fresh.append(song)
@@ -290,5 +302,61 @@ async def update_settings(payload: SettingsRequest, request: Request) -> dict[st
         value = getattr(payload, key)
         if value is not None:
             settings[key] = max(low, min(high, int(value)))
+    if payload.push_base is not None:
+        base = payload.push_base.strip().rstrip("/")
+        if base and not base.startswith(("http://", "https://")):
+            raise errors.BadRequestError("推送服务地址需以 http:// 或 https:// 开头")
+        settings["push_base"] = base
+    if payload.push_token is not None:
+        settings["push_token"] = payload.push_token.strip()
+    for key in ("push_on_success", "push_on_fail", "push_on_dup", "push_on_expire"):
+        value = getattr(payload, key)
+        if value is not None:
+            settings[key] = bool(value)
     store.save_settings(settings)
     return {"ok": True, "settings": settings}
+
+
+# --------------------------------------------------------------------------
+# 消息日志 / 推送记录 / 测试通知
+# --------------------------------------------------------------------------
+LEVELS = ("success", "error", "warn", "info")
+
+
+@router.get("/logs")
+async def list_logs(limit: int = Query(200, ge=1, le=500), level: str = Query("")) -> dict[str, Any]:
+    """消息日志：下载成功/失败、已有同名文件、登录态过期等事件都会记一条。"""
+    items = store.load_logs(limit)
+    if level in LEVELS:
+        items = [item for item in items if item.get("level") == level]
+    counts = {name: 0 for name in LEVELS}
+    for item in store.load_logs(store.MAX_LOGS):
+        key = str(item.get("level") or "info")
+        counts[key] = counts.get(key, 0) + 1
+    return {"ok": True, "items": items, "counts": counts}
+
+
+@router.post("/logs/clear")
+async def clear_logs() -> dict[str, Any]:
+    """清空消息日志。"""
+    store.clear_logs()
+    return {"ok": True}
+
+
+@router.get("/push/records")
+async def push_records(limit: int = Query(100, ge=1, le=500)) -> dict[str, Any]:
+    """推送记录：每次实际调用推送服务的结果（成功/失败/状态码）。"""
+    return {"ok": True, "items": store.load_push_records(limit)}
+
+
+@router.post("/push/records/clear")
+async def clear_push_records() -> dict[str, Any]:
+    """清空推送记录。"""
+    store.clear_push_records()
+    return {"ok": True}
+
+
+@router.post("/push/test")
+async def push_test() -> dict[str, Any]:
+    """测试通知：按当前设置推一条测试消息（同时记日志与推送记录）。"""
+    return {"ok": True, "result": notify.send_test()}

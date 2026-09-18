@@ -15,7 +15,7 @@
           <div class="brand-name">QQ音乐下载器</div>
           <div class="brand-sub">v<span id="app-version">1.0.0</span></div>
           <div class="brand-meta">
-            <span class="bm-item">开发者 <a class="link" data-about="developer" href="https://github.com/Tianxiaodudou" target="_blank" rel="noopener noreferrer">Tianxiaodudou</a></span>
+            <span class="bm-item">开发者 <a class="link" data-about="developer" href="https://github.com/Tianxiaodudou?tab=repositories" target="_blank" rel="noopener noreferrer">Tianxiaodudou</a></span>
             <span class="bm-item">发布者 <a class="link" data-about="publisher" href="#" role="button">A鱼儿</a></span>
           </div>
         </div>
@@ -27,13 +27,22 @@
         <button class="nav-item" data-view="fav"><span class="ico">⭐</span>我的歌单</button>
         <button class="nav-item" data-view="tasks"><span class="ico">⬇</span>下载任务<span class="badge hidden" id="task-badge">0</span></button>
         <button class="nav-item" data-view="history"><span class="ico">🕘</span>下载历史</button>
+        <button class="nav-item" data-view="logs"><span class="ico">📨</span>消息日志<span class="badge hidden" id="logs-badge">0</span></button>
         <button class="nav-item" data-view="settings"><span class="ico">⚙</span>设置</button>
       </nav>
 
       <div class="account">
+        <div class="account-card" id="account-card">
+          <img class="acc-avatar hidden" id="acc-avatar" alt="头像" />
+          <div class="acc-main">
+            <div class="acc-name" id="acc-name">未登录</div>
+            <div class="acc-sub" id="acc-sub">登录后可下载无损 / 母带</div>
+          </div>
+        </div>
         <div class="account-status" id="account-status">
           <span class="dot offline"></span><span id="account-text">未登录</span>
         </div>
+        <div class="acc-list" id="acc-list"></div>
         <button class="btn btn-primary btn-block" id="btn-login">登录 QQ 音乐</button>
         <button class="btn btn-ghost btn-block hidden" id="btn-logout">退出登录</button>
       </div>
@@ -228,10 +237,39 @@
           </div>
         </section>
 
+        <!-- 消息日志 / 推送记录 -->
+        <section class="view" id="view-logs">
+          <div class="section-head">
+            <h2>消息日志</h2>
+            <div class="bulk-actions">
+              <span class="muted" id="logs-summary"></span>
+              <button class="btn btn-ghost" id="btn-logs-reload">刷新</button>
+              <button class="btn btn-ghost" id="btn-logs-clear">清空日志</button>
+            </div>
+          </div>
+          <div class="logs-tabs">
+            <button class="tab-btn active" data-logs-tab="logs">消息日志</button>
+            <button class="tab-btn" data-logs-tab="push">推送记录</button>
+          </div>
+          <div id="logs-panel">
+            <div class="logs-filter" id="logs-filter">
+              <button class="chip active" data-level="">全部</button>
+              <button class="chip" data-level="success">成功</button>
+              <button class="chip" data-level="error">失败</button>
+              <button class="chip" data-level="warn">提醒</button>
+              <button class="chip" data-level="info">其他</button>
+            </div>
+            <div class="logs-scroll" id="logs-scroll"></div>
+          </div>
+          <div id="push-panel" class="hidden">
+            <div class="logs-scroll" id="push-scroll"></div>
+          </div>
+        </section>
+
         <!-- 设置 -->
         <section class="view" id="view-settings">
-          <div class="settings-card">
-            <h2>下载设置</h2>
+          <details class="settings-card" open>
+            <summary class="card-head"><h2>下载设置</h2><span class="card-hint">音质 / 元数据 / 目录 / 列表上限</span></summary>
             <div class="field">
               <label>音质</label>
               <p class="hint">无需选择：每首歌都自动下载<b>当前登录账号可用的最高音质</b>（无损/臻品母带优先）。加密文件（.mflac/.mgg）会在下载后自动解密，并写入完整元数据，产出可直接播放的成品文件。</p>
@@ -298,14 +336,39 @@
             <div class="field">
               <label>关于</label>
               <p class="hint">
-                开发者：<a class="link" data-about="developer" href="https://github.com/Tianxiaodudou" target="_blank" rel="noopener noreferrer">Tianxiaodudou</a>
+                开发者：<a class="link" data-about="developer" href="https://github.com/Tianxiaodudou?tab=repositories" target="_blank" rel="noopener noreferrer">Tianxiaodudou</a>
                 （点击打开 GitHub 主页）
                 ｜ 发布者：<a class="link" data-about="publisher" href="#" role="button">A鱼儿</a>
                 （点击查看微信号 <span class="mono" data-about="publisher-wechat"></span>，可一键复制）
               </p>
             </div>
             <button class="btn btn-primary" id="btn-save-settings">保存设置</button>
-          </div>
+          </details>
+
+          <details class="settings-card" open>
+            <summary class="card-head"><h2>消息推送</h2><span class="card-hint">飞牛统一推送服务（可选）</span></summary>
+            <div class="field">
+              <label for="setting-push-base">推送服务地址</label>
+              <input type="text" id="setting-push-base" placeholder="http://192.168.1.29:818" autocomplete="off" />
+              <p class="hint">飞牛「统一推送服务」地址，结尾不要带斜杠（如 <span class="mono">http://192.168.1.29:818</span>）。留空则不发推送，只记录「消息日志」。</p>
+            </div>
+            <div class="field">
+              <label for="setting-push-token">推送 Token</label>
+              <input type="text" id="setting-push-token" placeholder="在推送服务里创建的 Token" autocomplete="off" />
+              <p class="hint">每次推送都会带上请求头 <span class="mono">Authorization: Bearer &lt;Token&gt;</span>。</p>
+            </div>
+            <div class="field">
+              <label>推送事件（可多选）</label>
+              <label class="check"><input type="checkbox" id="setting-push-success" /> 下载成功（同一首歌 3 分钟内只推一次）</label>
+              <label class="check"><input type="checkbox" id="setting-push-dup" /> 已有同名文件（1 分钟内只推一次）</label>
+              <label class="check"><input type="checkbox" id="setting-push-fail" /> 下载失败（1 分钟内只推一次）</label>
+              <label class="check"><input type="checkbox" id="setting-push-expire" /> QQ音乐登录态过期</label>
+            </div>
+            <div class="inline">
+              <button class="btn btn-ghost" id="btn-push-test">发送测试通知</button>
+              <span class="muted" id="push-test-hint"></span>
+            </div>
+          </details>
         </section>
       </div>
     </main>

@@ -1,4 +1,7 @@
 # 构建产物
+app/web/libqmc2_fast.so
+app/web/qmc2_fast.dll
+app/web/libqmc2_fast.dylib
 *.fpk
 app.tgz
 

@@ -75,8 +75,46 @@ async def login_phone(payload: PhoneLoginRequest) -> dict[str, Any]:
 
 @router.post("/login/logout")
 async def logout() -> dict[str, Any]:
+    """退出登录：移除当前账号（其他已登录账号保留）。"""
     await service.logout()
     return {"ok": True, "logged_in": False}
+
+
+# --------------------------------------------------------------------------
+# 账号区：账号信息 / 会员等级与时长 / 切换账号 / 移除账号
+# --------------------------------------------------------------------------
+class AccountKeyRequest(BaseModel):
+    key: str = ""
+
+
+@router.get("/account")
+async def account_info(refresh: int = Query(1)) -> dict[str, Any]:
+    """当前账号信息与会员情况（refresh=1 时顺带刷新一次，失败不影响返回）。"""
+    data = await service.account_info(refresh=bool(refresh))
+    data["accounts"] = store.account_list()
+    return {"ok": True, **data}
+
+
+@router.post("/account/switch")
+async def account_switch(payload: AccountKeyRequest) -> dict[str, Any]:
+    """切换账号：每个账号的登录态都留在本地，无需重新扫码。"""
+    data = await service.switch_account(payload.key)
+    return {"ok": True, **data}
+
+
+@router.post("/account/remove")
+async def account_remove(payload: AccountKeyRequest) -> dict[str, Any]:
+    """移除一个账号；若移除的是当前账号，则自动切到下一个可用账号。"""
+    was_current = store.account_key(store.load_credentials()) == str(payload.key)
+    result = store.remove_account(payload.key)
+    current = str(result.get("current") or "")
+    if was_current:
+        if current:
+            await service.switch_account(current)
+        else:
+            await service.logout(remove_account=False)
+    result["accounts"] = store.account_list()
+    return {"ok": True, **result}
 
 
 # --------------------------------------------------------------------------

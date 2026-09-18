@@ -32,8 +32,15 @@ CREDENTIAL_FILE = DATA_DIR / "credential.json"
 SETTINGS_FILE = DATA_DIR / "settings.json"
 TASKS_FILE = DATA_DIR / "tasks.json"
 HISTORY_FILE = DATA_DIR / "history.json"
+ACCOUNTS_FILE = DATA_DIR / "accounts.json"
+LOGS_FILE = DATA_DIR / "logs.json"
+PUSH_LOG_FILE = DATA_DIR / "push_log.json"
 
 # 音质：不再由用户选择，自动按从高到低尝试，取登录账号可用的最高音质
+# 消息推送默认服务地址（用户可在「设置 → 消息推送」里覆盖）
+DEFAULT_PUSH_BASE = _env("QQMUSIC_PUSH_BASE", "http://192.168.1.29:818")
+DEFAULT_PUSH_TOKEN = _env("QQMUSIC_PUSH_TOKEN", "")
+
 QUALITY_ORDER = ("master", "flac", "ogg_320", "mp3_320", "acc_192", "mp3_128")
 # 兜底音质：仅当上面全部不可用时使用
 DEFAULT_QUALITY = _env("QQMUSIC_QUALITY", "mp3_320")

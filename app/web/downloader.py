@@ -17,7 +17,7 @@ from typing import Any
 
 import httpx
 
-from . import decrypt, env, errors, security, store, tagging
+from . import decrypt, env, errors, notify, security, store, tagging
 
 logger = logging.getLogger("qqmusic.download")
 
@@ -205,6 +205,7 @@ class DownloadManager:
 
     # ---------------- 生命周期 ----------------
     async def start(self) -> None:
+        self._prune_workspace()
         self._load()
         if self._worker is None or self._worker.done():
             self._running = True
@@ -427,13 +428,13 @@ class DownloadManager:
     def _stage_ready(key: str, runtime: dict[str, Any]) -> bool:
         """已完成阶段在本次运行中是否仍有可用数据（进程重启后内存数据会丢）。"""
         if key == "download":
-            source = str(runtime.get("source") or "").strip()
-            return bool(source) and Path(source).is_file()
+            data = runtime.get("audio")
+            return isinstance(data, (bytes, bytearray)) and len(data) > 0
         if key == "meta":
             return "lyric" in runtime and "cover" in runtime
         if key == "decrypt":
-            decrypted = str(runtime.get("decrypted") or "").strip()
-            return bool(decrypted) and Path(decrypted).is_file()
+            data = runtime.get("decrypted")
+            return isinstance(data, (bytes, bytearray)) and len(data) > 0
         return True
 
     # ---------------- 阶段一：下载（自动选用账号可用的最高音质） ----------------
@@ -444,7 +445,6 @@ class DownloadManager:
         target_dir: Path,
         runtime: dict[str, Any],
     ) -> None:
-        work_dir.mkdir(parents=True, exist_ok=True)
         task.set_stage("download", DOWNLOADING, 0.0, "获取歌曲信息")
         self._save()
 
@@ -459,7 +459,7 @@ class DownloadManager:
                 task.songid = int(detail["songid"])
         sizes = detail.get("sizes") or {}
 
-        source = work_dir / "source.bin"
+        data = b""
         chosen: dict[str, Any] | None = None
         last_reason = ""
         for quality in env.QUALITY_ORDER:
@@ -482,12 +482,15 @@ class DownloadManager:
             expected = int(sizes.get(env.QUALITY_SIZE_KEYS.get(quality, ""), 0) or 0)
             task.set_stage("download", None, 0.02, f"下载 {env.quality_label(quality)}")
             self._save()
-            size = await self._fetch(task, url, source, expected)
+            # 中间产物全部放在内存里：下完直接用于解密，落盘的只有最终成品
+            audio = await self._fetch(task, url, expected)
+            size = len(audio)
             if expected and resolved.get("encrypted") and size < int(expected * 0.9):
                 # 文件明显偏小：账号只能拿到试听片段，降级重试
                 last_reason = "该音质仅返回试听片段"
                 logger.info("音质 %s 为试听片段（%s < %s），降级", quality, size, expected)
                 continue
+            data = audio
             chosen = resolved
             task.quality = quality
             task.quality_label = env.quality_label(quality)
@@ -502,17 +505,17 @@ class DownloadManager:
             "ext": str(chosen.get("ext") or ""),
             "encrypted": bool(chosen.get("encrypted")),
         }
-        runtime["source"] = str(source)
-        task.received = source.stat().st_size
-        task.total = task.received
+        runtime["audio"] = data
+        runtime["source_size"] = len(data)
+        task.received = len(data)
+        task.total = len(data)
         task.set_stage("download", DONE, 1.0, "")
         task.refresh_status()
         self._save()
 
-    async def _fetch(self, task: DownloadTask, url: str, dest: Path, expected: int = 0) -> int:
-        """流式下载，边下边汇报进度；返回实际字节数。"""
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        received = 0
+    async def _fetch(self, task: DownloadTask, url: str, expected: int = 0) -> bytes:
+        """流式下载到内存（不落盘），边下边汇报进度；返回原始字节。"""
+        buffer = bytearray()
         reported = 0.0
         async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=120.0), follow_redirects=True) as client:
             async with client.stream("GET", url) as response_stream:
@@ -520,22 +523,21 @@ class DownloadManager:
                 content_length = int(response_stream.headers.get("Content-Length") or 0)
                 total = content_length or expected or 0
                 task.total = total
-                with open(dest, "wb") as handle:
-                    async for chunk in response_stream.aiter_bytes(256 * 1024):
-                        handle.write(chunk)
-                        received += len(chunk)
-                        task.received = received
-                        if total:
-                            ratio = min(0.99, received / total)
-                            if ratio - reported >= 0.05:
-                                reported = ratio
-                                task.set_stage("download", None, ratio)
-                                self._save()
-                        else:
-                            task.touch()
-        if not received:
+                async for chunk in response_stream.aiter_bytes(256 * 1024):
+                    buffer.extend(chunk)
+                    received = len(buffer)
+                    task.received = received
+                    if total:
+                        ratio = min(0.99, received / total)
+                        if ratio - reported >= 0.05:
+                            reported = ratio
+                            task.set_stage("download", None, ratio)
+                            self._save()
+                    else:
+                        task.touch()
+        if not buffer:
             raise errors.UpstreamError("下载内容为空")
-        return received
+        return bytes(buffer)
 
     # ---------------- 阶段二：元数据（详情 / 歌词 / 封面） ----------------
     async def _stage_metadata(
@@ -609,12 +611,13 @@ class DownloadManager:
         task.set_stage("decrypt", DOWNLOADING, 0.0, "解密音频")
         self._save()
 
-        source = Path(str(runtime.get("source") or ""))
-        if not source.exists():
+        data = runtime.get("audio")
+        if not isinstance(data, (bytes, bytearray)) or not data:
             raise errors.UpstreamError("原始音频不存在，请重试")
         resolved = runtime.get("resolved") or {}
-        ext = str(resolved.get("ext") or source.suffix or ".bin")
-        dest = work_dir / f"decrypted{ext}"
+        ext = str(resolved.get("ext") or ".bin")
+        if not ext.startswith("."):
+            ext = "." + ext
 
         def report(done: int, total: int) -> None:
             task.received = int(done)
@@ -627,26 +630,24 @@ class DownloadManager:
             else:
                 task.touch()
 
-        # 纯 Python 解密是 CPU 密集操作，放线程池执行，避免阻塞事件循环（否则进度条会长时间不动）
+        # 解密是 CPU 密集操作：装了 C 加速库（csrc/qmc2_fast.c）时走 C，否则纯 Python；
+        # 都在线程池里跑，避免阻塞事件循环（否则进度条会长时间不动）。全程内存，不写临时文件。
         result = await asyncio.to_thread(
-            decrypt.decrypt_file,
-            source,
-            dest,
+            decrypt.decrypt_bytes,
+            bytes(data),
             str(resolved.get("ekey") or ""),
             progress=report,
             encrypted_hint=bool(resolved.get("encrypted")),
         )
-        output = Path(str(result.get("output") or dest))
+        runtime.pop("audio", None)
+        runtime["decrypted"] = bytes(result.get("audio") or b"")
         real_ext = str(result.get("ext") or ext)
-        if output.suffix.lower() != real_ext.lower():
-            renamed = output.with_suffix(real_ext)
-            os.replace(output, renamed)
-            output = renamed
-        runtime["decrypted"] = str(output)
+        if not real_ext.startswith("."):
+            real_ext = "." + real_ext
         runtime["ext"] = real_ext
         task.encrypted = bool(result.get("encrypted"))
         task.output_ext = real_ext
-        task.output_size = int(result.get("audio_size") or output.stat().st_size)
+        task.output_size = int(result.get("audio_size") or len(runtime["decrypted"]))
         task.set_stage("decrypt", DONE, 1.0, "")
         task.refresh_status()
         self._save()
@@ -659,27 +660,18 @@ class DownloadManager:
         target_dir: Path,
         runtime: dict[str, Any],
     ) -> None:
-        task.set_stage("merge", DOWNLOADING, 0.05, "写出音频文件")
+        task.set_stage("merge", DOWNLOADING, 0.05, "写入元数据")
         self._save()
 
-        stem = output_stem(task.name, task.singer, task.songmid)
-        source = Path(str(runtime.get("decrypted") or ""))
-        if not source.exists() and work_dir.is_dir():
-            found = sorted(work_dir.glob("decrypted.*"))
-            if found:
-                source = found[0]
-                runtime.setdefault("decrypted", str(source))
-        ext = str(runtime.get("ext") or source.suffix or ".bin")
+        data = runtime.get("decrypted")
+        if not isinstance(data, (bytes, bytearray)) or not data:
+            raise errors.UpstreamError("解密后的音频不存在，请重试")
+        ext = str(runtime.get("ext") or ".bin")
         if not ext.startswith("."):
             ext = "." + ext
+        stem = output_stem(task.name, task.singer, task.songmid)
         final = target_dir / f"{stem}{ext}"
         target_dir.mkdir(parents=True, exist_ok=True)
-        if source.exists():
-            if final.exists() and final.resolve() != source.resolve():
-                final.unlink()
-            shutil.move(str(source), str(final))
-        elif not final.exists():
-            raise errors.UpstreamError("解密后的音频不存在，请重试")
         task.set_stage("merge", None, 0.35, "写入元数据")
         self._save()
 
@@ -703,8 +695,9 @@ class DownloadManager:
 
         try:
             result = await asyncio.to_thread(
-                tagging.embed,
-                final,
+                tagging.embed_bytes,
+                bytes(data),
+                ext,
                 meta,
                 cover=runtime.get("cover") or b"",
                 lyric=str(lyric.get("lyric") or ""),
@@ -713,6 +706,20 @@ class DownloadManager:
             )
         except Exception as exc:  # noqa: BLE001
             raise errors.UpstreamError(f"元数据写入失败：{exc}") from exc
+        runtime.pop("decrypted", None)
+        # 中间产物不落盘：标签全部写好后，才把成品写入下载目录。
+        # 先写同目录临时文件再原子改名，中途失败也不会留下半个文件。
+        payload = bytes((result or {}).get("audio") or b"")
+        tmp = final.with_name(f".{final.name}.tmp")
+        try:
+            tmp.write_bytes(payload)
+            os.replace(tmp, final)
+        except OSError as exc:  # noqa: BLE001
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+            raise errors.UpstreamError(f"成品写入失败：{exc}") from exc
         written = list((result or {}).get("fields") or [])
         task.meta_field_count = len(written)
         if bool(settings.get("meta_json", env.DEFAULT_META_JSON)):
@@ -730,6 +737,7 @@ class DownloadManager:
         self._save()
 
         store.append_history(self._history_record(task))
+        notify.notify_download_success(task)
 
         # 完成即「退休」：成功记录只留在「下载历史」里，任务列表不再堆积已完成的卡片。
         # 失败/中断的任务仍留在列表里，方便点「重试」。
@@ -770,6 +778,33 @@ class DownloadManager:
         shutil.rmtree(env.DATA_DIR / WORK_DIR_NAME / task_id, ignore_errors=True)
         self._runtime.pop(task_id, None)
 
+    @staticmethod
+    def _prune_workspace() -> None:
+        """运行期资源自清理：目录里的中间产物（work/ 临时目录、.part/.tmp 残留）一律清掉。
+
+        升级前的老版本会把「加密原文件 / 解密结果」放在 work 目录里，升级后这些都不再需要，
+        启动时直接删除，避免占用 NAS 空间。
+        """
+        work_root = env.DATA_DIR / WORK_DIR_NAME
+        if work_root.is_dir():
+            shutil.rmtree(work_root, ignore_errors=True)
+            logger.info("已清理历史中间目录：%s", security.sanitize_log(str(work_root)))
+        for tmp_dir in (env.DATA_DIR / "tmp", env.DATA_DIR / "temp"):
+            if tmp_dir.is_dir():
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+        try:
+            target = default_target_dir()
+        except Exception:  # noqa: BLE001
+            return
+        if not target.is_dir():
+            return
+        for item in target.iterdir():
+            if item.is_file() and item.suffix.lower() in PART_SUFFIXES:
+                try:
+                    item.unlink()
+                except OSError:
+                    continue
+
     def _fail(self, task: DownloadTask, reason: str, message: str = "") -> None:
         """失败标记：只标记尚未完成的阶段。"""
         for key, _ in STAGES:
@@ -780,6 +815,9 @@ class DownloadManager:
         task.refresh_status()
         if reason == errors.CREDENTIAL_EXPIRED:
             store.clear_credentials()
+            notify.notify_login_expired(task.message or "请重新登录")
+        else:
+            notify.notify_task_failure(task, task.message or reason)
         self._save()
 
     # ---------------- 持久化 ----------------

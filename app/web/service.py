@@ -28,6 +28,17 @@ _SESSION_TTL = 300
 _HTML_TAG_RE = re.compile(r"<[^>]{0,40}>")
 
 
+def service_field(obj: Any, *keys: str, default: Any = "") -> Any:
+    """从模型或字典里按候选字段名取第一个非空值。"""
+    for key in keys:
+        if obj is None:
+            return default
+        value = obj.get(key) if isinstance(obj, dict) else getattr(obj, key, None)
+        if value not in (None, "", []):
+            return value
+    return default
+
+
 def clean_text(value: Any) -> str:
     """清理上游返回文本：去掉搜索高亮标签（<em>）与多余空白。"""
     text = str(value if value is not None else "")
@@ -135,12 +146,137 @@ class QQService:
     def status(self) -> dict[str, Any]:
         return {"logged_in": store.is_logged_in()}
 
-    async def logout(self) -> None:
-        store.clear_credentials()
+    async def logout(self, remove_account: bool = True) -> None:
+        """退出登录：默认把该账号从账号列表里移除（多账号场景）。"""
+        store.clear_credentials(remove_account=remove_account)
         if self._client is not None:
             self._client.credential = None
         self._sessions.clear()
         self._sessions_created.clear()
+
+    def list_accounts(self) -> list[dict[str, Any]]:
+        """所有已登录过的账号（不含凭证本体）。"""
+        return store.account_list()
+
+    async def switch_account(self, key: str) -> dict[str, Any]:
+        """切换当前账号：账号各自的登录态都保留在本地。"""
+        credential = store.switch_account(str(key or ""))
+        if not credential:
+            raise errors.BadRequestError("账号不存在或登录态已失效，请重新登录")
+        try:
+            parsed = Credential.model_validate(credential)
+        except Exception as exc:  # noqa: BLE001
+            raise errors.BadRequestError("该账号登录态已失效，请重新登录") from exc
+        if self._client is not None:
+            self._client.credential = parsed
+        self._sessions.clear()
+        self._sessions_created.clear()
+        return {"logged_in": True, "musicid": credential.get("musicid") or ""}
+
+    @staticmethod
+    def _vip_summary(vip: Any) -> dict[str, Any]:
+        """把会员接口结果整理成「会员等级 / 会员时长」。"""
+        identity = service_field(vip, "identity", default=None)
+        userinfo = service_field(vip, "userinfo", default=None)
+        labels: list[str] = []
+        for flag, label in (
+            ("svip", "超级会员"),
+            ("huge_vip", "豪华绿钻"),
+            ("vip", "绿钻"),
+            ("twelve", "十二平台会员"),
+            ("year_flag", "年费绿钻"),
+            ("huge_year_flag", "豪华年费绿钻"),
+            ("star", "星级会员"),
+            ("ystar", "年费星级会员"),
+        ):
+            if service_field(identity, flag, default=0):
+                labels.append(label)
+        level = service_field(identity, "level", default=0) or service_field(userinfo, "music_level", default=0)
+        expire = service_field(userinfo, "expire", default=0)
+        expire_at = ""
+        days_left = 0
+        try:
+            stamp = int(expire or 0)
+        except (TypeError, ValueError):
+            stamp = 0
+        if stamp > 0:
+            expire_at = time.strftime("%Y-%m-%d", time.localtime(stamp))
+            days_left = max(int((stamp - time.time()) // 86400), 0)
+        level_text = " ".join(labels) if labels else "非会员"
+        if level:
+            level_text = f"{level_text} LV{level}"
+        desc = ""
+        if expire_at:
+            desc = f"有效期至 {expire_at}（剩余 {days_left} 天）"
+        elif labels:
+            desc = "长期有效"
+        else:
+            desc = "未开通会员"
+        return {"vip_level": level_text, "vip_desc": desc, "vip_expire": expire_at, "vip_days_left": days_left}
+
+    async def account_info(self, refresh: bool = True) -> dict[str, Any]:
+        """账号信息 + 会员等级 + 会员时长（refresh=False 只读本地缓存）。"""
+        credential = store.load_credentials()
+        if not credential:
+            return {"logged_in": False}
+        key = store.account_key(credential)
+        meta = store.account_info_for(key)
+        info: dict[str, Any] = {
+            "logged_in": True,
+            "current_key": key,
+            "musicid": security.mask(str(credential.get("musicid") or credential.get("str_musicid") or "")),
+            "nickname": meta.get("nickname") or "",
+            "avatar": meta.get("avatar") or "",
+            "vip_level": meta.get("vip_level") or "",
+            "vip_desc": meta.get("vip_desc") or "",
+            "vip_expire": meta.get("vip_expire") or "",
+            "vip_days_left": meta.get("vip_days_left") or 0,
+            "login_type": credential.get("login_type") or "",
+            "updated_at": credential.get("updated_at") or 0,
+        }
+        if not refresh:
+            return info
+        euin = self._euin()
+        nickname = info["nickname"]
+        avatar = info["avatar"]
+        if euin:
+            try:
+                homepage = await self.call(lambda c: c.user.get_homepage(euin))
+                base = self._field(homepage, "base_info", default=None)
+                nickname = str(self._field(base, "name", default="") or nickname)
+                avatar = str(self._field(base, "avatar", default="") or avatar)
+            except errors.LoginExpiredError:
+                raise
+            except Exception as exc:  # noqa: BLE001 展示信息失败不影响使用
+                logger.info("获取账号主页信息失败：%s", security.sanitize_log(str(exc)))
+        try:
+            vip = await self.call(lambda c: c.user.get_vip_info())
+            vip_info = self._vip_summary(vip)
+        except errors.LoginExpiredError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.info("获取会员信息失败：%s", security.sanitize_log(str(exc)))
+            vip_info = {}
+        info.update({k: v for k, v in vip_info.items() if v not in (None, "")})
+        info["nickname"] = nickname
+        info["avatar"] = avatar
+        store.update_account_meta(
+            key,
+            nickname=nickname,
+            avatar=avatar,
+            vip_level=info.get("vip_level") or "",
+            vip_desc=info.get("vip_desc") or "",
+            vip_expire=info.get("vip_expire") or "",
+            vip_days_left=info.get("vip_days_left") or 0,
+        )
+        return info
+
+    async def refresh_account_profile(self) -> None:
+        """登录成功后顺手缓存昵称/头像/会员信息（失败忽略）。"""
+        try:
+            await self.account_info(refresh=True)
+        except Exception as exc:  # noqa: BLE001
+            logger.info("缓存账号信息失败：%s", security.sanitize_log(str(exc)))
 
     async def create_qrcode(self, login_type: str) -> dict[str, Any]:
         qr_type = _QR_TYPES.get((login_type or "").lower())

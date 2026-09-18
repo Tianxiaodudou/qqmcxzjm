@@ -37,6 +37,9 @@ jobs:
       - name: 后端冒烟测试
         run: python tools/ci/smoke_test.py
 
+      - name: C 加速解密库与纯 Python 等价性校验
+        run: python tools/ci/test_c_accel.py
+
   build:
     name: 打包 FPK
     needs: validate
@@ -59,6 +62,11 @@ jobs:
       - name: 读取版本号（用于资产命名）
         id: ver
         run: echo "version=$(python tools/ci/release_notes.py --print-version)" >> "$GITHUB_OUTPUT"
+
+      - name: 编译 QMC2 C 加速库（随包分发）
+        run: |
+          gcc -O2 -shared -fPIC -o app/web/libqmc2_fast.so app/web/csrc/qmc2_fast.c
+          ls -l app/web/libqmc2_fast.so
 
       - name: 构建 .fpk
         run: |

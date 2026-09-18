@@ -98,6 +98,13 @@ def main(argv: list[str]) -> int:
                     if not any(n.endswith(name) for n in names):
                         errors.append(f"app.tgz 中缺少 {name}")
 
+                # C 加速解密库必须在包内（否则 NAS 上退回纯 Python，解密慢 30 倍以上）。
+                # 由 CI 的「编译 QMC2 C 加速库」步骤在 fnpack build 之前生成。
+                if not any(n.endswith("web/libqmc2_fast.so") for n in names):
+                    errors.append(
+                        "app.tgz 中缺少 web/libqmc2_fast.so（C 加速解密库未随包分发）"
+                    )
+
                 # 入口 url 必须以 / 结尾：否则飞牛网关会把 /app/<name> 307 重定向到
                 # 丢失端口的地址（IP:端口 访问时掉到 80 端口），桌面窗口直接空白。
                 if cfg_raw is None:

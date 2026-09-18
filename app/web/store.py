@@ -70,12 +70,19 @@ def save_credentials(credential: dict[str, Any]) -> None:
         _credential = data
         _credential_loaded = True
         _write_json(env.CREDENTIAL_FILE, data, 0o600)
+        _remember_on_save(data)  # 同步进账号列表（多账号切换用）
 
 
-def clear_credentials() -> None:
-    """清空凭证（登出或登录过期）。"""
+def clear_credentials(remove_account: bool = False) -> None:
+    """清空当前凭证（登录过期 / 退出登录）。
+
+    remove_account=False：只清空登录态，账号条目仍留在账号列表里（登录过期场景）；
+    remove_account=True：退出登录，把该账号从账号列表里彻底移除。
+    """
     global _credential, _credential_loaded
     with _LOCK:
+        current = _credential or load_credentials()
+        key = account_key(current)
         _credential = None
         _credential_loaded = True
         try:
@@ -83,6 +90,13 @@ def clear_credentials() -> None:
                 env.CREDENTIAL_FILE.unlink()
         except OSError:
             pass
+        if key:
+            if remove_account:
+                forget_account(key)
+            else:
+                data = load_accounts()
+                if data.get("current") == key:
+                    save_accounts({"current": "", "accounts": data["accounts"]})
 
 
 def is_logged_in() -> bool:
@@ -95,10 +109,15 @@ def login_status() -> dict[str, Any]:
     cred = load_credentials()
     if not cred:
         return {"logged_in": False}
+    info = account_info_for(account_key(cred))
     return {
         "logged_in": True,
         "musicid": security.mask(str(cred.get("musicid", ""))),
-        "nickname": cred.get("nickname") or "",
+        "nickname": cred.get("nickname") or info.get("nickname") or "",
+        "avatar": cred.get("avatar") or info.get("avatar") or "",
+        "vip_level": info.get("vip_level") or "",
+        "vip_desc": info.get("vip_desc") or "",
+        "vip_expire": info.get("vip_expire") or "",
         "login_type": cred.get("login_type") or "",
         "updated_at": cred.get("updated_at") or 0,
     }
@@ -119,6 +138,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "home_newsongs_max": env.DEFAULT_HOME_NEWSONGS_MAX,
     "home_guess_max": env.DEFAULT_HOME_GUESS_MAX,
     "home_radar_max": env.DEFAULT_HOME_RADAR_MAX,
+    "push_base": env.DEFAULT_PUSH_BASE,
+    "push_token": env.DEFAULT_PUSH_TOKEN,
+    "push_on_success": True,
+    "push_on_dup": True,
+    "push_on_fail": True,
+    "push_on_expire": True,
 }
 
 
@@ -177,3 +202,251 @@ def find_history(songmid: str) -> dict[str, Any] | None:
         if item.get("songmid") == songmid:
             return item
     return None
+
+
+# --------------------------------------------------------------------------
+# 消息日志（下载成功 / 下载失败 / 已有同名文件 / 登录态过期 …）
+# --------------------------------------------------------------------------
+MAX_LOGS = 500
+LOG_LEVELS = ("success", "error", "warn", "info")
+
+
+def load_logs(limit: int = 200) -> list[dict[str, Any]]:
+    with _LOCK:
+        data = _read_json(env.LOGS_FILE, [])
+        items = data if isinstance(data, list) else []
+        return items[: max(int(limit), 0)] if limit else items
+
+
+def append_log(level: str, event: str, title: str = "", detail: str = "") -> dict[str, Any]:
+    """追加一条消息日志（内存 + 落盘，最多 MAX_LOGS 条）。"""
+    with _LOCK:
+        items = _read_json(env.LOGS_FILE, [])
+        if not isinstance(items, list):
+            items = []
+        record = {
+            "id": f"{int(time.time() * 1000)}-{len(items)}",
+            "time": int(time.time()),
+            "level": level if level in LOG_LEVELS else "info",
+            "event": str(event or ""),
+            "title": str(title or ""),
+            "detail": str(detail or "")[:2000],
+        }
+        items.insert(0, record)
+        del items[MAX_LOGS:]
+        _write_json(env.LOGS_FILE, items, 0o600)
+        return record
+
+
+def clear_logs() -> None:
+    with _LOCK:
+        _write_json(env.LOGS_FILE, [], 0o600)
+
+
+# --------------------------------------------------------------------------
+# 推送记录（每次推送成功/失败都记一条）
+# --------------------------------------------------------------------------
+MAX_PUSH_RECORDS = 300
+
+
+def load_push_records(limit: int = 200) -> list[dict[str, Any]]:
+    with _LOCK:
+        data = _read_json(env.PUSH_LOG_FILE, [])
+        items = data if isinstance(data, list) else []
+        return items[: max(int(limit), 0)] if limit else items
+
+
+def append_push_record(entry: dict[str, Any]) -> dict[str, Any]:
+    with _LOCK:
+        items = _read_json(env.PUSH_LOG_FILE, [])
+        if not isinstance(items, list):
+            items = []
+        record = dict(entry)
+        record.setdefault("time", int(time.time()))
+        record.setdefault("id", f"{int(time.time() * 1000)}-{len(items)}")
+        items.insert(0, record)
+        del items[MAX_PUSH_RECORDS:]
+        _write_json(env.PUSH_LOG_FILE, items, 0o600)
+        return record
+
+
+def clear_push_records() -> None:
+    with _LOCK:
+        _write_json(env.PUSH_LOG_FILE, [], 0o600)
+
+
+def recent_push_time(dedup_key: str) -> int:
+    """返回同一去重键最近一次**成功**推送的时间戳（0 表示没有）。"""
+    for item in load_push_records(limit=120):
+        if item.get("dedup_key") == dedup_key and item.get("ok"):
+            return int(item.get("time") or 0)
+    return 0
+
+
+# --------------------------------------------------------------------------
+# 多账号（每个账号各自保留登录态，可随时切换）
+# --------------------------------------------------------------------------
+def account_key(credential: dict[str, Any] | None) -> str:
+    """账号唯一标识：优先 musicid，其次 str_musicid / encrypt_uin。"""
+    if not isinstance(credential, dict):
+        return ""
+    for field in ("musicid", "str_musicid", "encrypt_uin", "openid"):
+        value = credential.get(field)
+        if value not in (None, "", 0, "0"):
+            return str(value)
+    return ""
+
+
+def load_accounts() -> dict[str, Any]:
+    with _LOCK:
+        data = _read_json(env.ACCOUNTS_FILE, {})
+        if not isinstance(data, dict):
+            data = {}
+        accounts = data.get("accounts")
+        if not isinstance(accounts, list):
+            accounts = []
+        return {"current": str(data.get("current") or ""), "accounts": accounts}
+
+
+def save_accounts(data: dict[str, Any]) -> None:
+    with _LOCK:
+        _write_json(env.ACCOUNTS_FILE, data, 0o600)
+
+
+def _account_entry(credential: dict[str, Any]) -> dict[str, Any]:
+    """账号摘要：不含完整凭证，凭证单独存放在 accounts.json 的 credential 字段。"""
+    meta = dict(credential)
+    return {
+        "key": account_key(credential),
+        "musicid": meta.get("musicid") or meta.get("str_musicid") or "",
+        "musicid_mask": security.mask(str(meta.get("musicid") or meta.get("str_musicid") or "")),
+        "nickname": meta.get("nickname") or "",
+        "avatar": meta.get("avatar") or "",
+        "vip_level": meta.get("vip_level") or "",
+        "vip_desc": meta.get("vip_desc") or "",
+        "vip_expire": meta.get("vip_expire") or "",
+        "login_type": meta.get("login_type") or "",
+        "updated_at": int(meta.get("updated_at") or time.time()),
+    }
+
+
+def remember_account(credential: dict[str, Any]) -> None:
+    """把（刚登录/刷新过的）凭证登记进账号列表，并设为当前账号。"""
+    key = account_key(credential)
+    if not key:
+        return
+    with _LOCK:
+        data = load_accounts()
+        creds = dict(credential)
+        creds.pop("nickname", None)
+        creds.pop("avatar", None)
+        # 昵称/头像等展示字段跟着凭证一起存，方便切换后立即显示
+        meta = _account_entry(credential)
+        entry = dict(meta)
+        entry["credential"] = creds
+        accounts = [a for a in data["accounts"] if a.get("key") != key]
+        old = next((a for a in data["accounts"] if a.get("key") == key), None)
+        if old:  # 保留旧的展示信息，避免刷新凭证时把昵称清空
+            for field in ("nickname", "avatar", "vip_level", "vip_desc", "vip_expire"):
+                if not entry.get(field) and old.get(field):
+                    entry[field] = old[field]
+        accounts.insert(0, entry)
+        save_accounts({"current": key, "accounts": accounts})
+
+
+def update_account_meta(key: str, **meta: Any) -> None:
+    """更新账号展示信息（昵称 / 头像 / 会员等级…）。"""
+    if not key:
+        return
+    with _LOCK:
+        data = load_accounts()
+        changed = False
+        for item in data["accounts"]:
+            if item.get("key") == key:
+                for name, value in meta.items():
+                    if value not in (None, ""):
+                        item[name] = value
+                        changed = True
+        if changed:
+            save_accounts(data)
+
+
+def forget_account(key: str) -> None:
+    """退出登录：从账号列表里彻底移除该账号。"""
+    if not key:
+        return
+    with _LOCK:
+        data = load_accounts()
+        accounts = [a for a in data["accounts"] if a.get("key") != key]
+        current = data.get("current") or ""
+        if current == key:
+            current = account_key(accounts[0].get("credential")) if accounts else ""
+        save_accounts({"current": current, "accounts": accounts})
+
+
+def account_list() -> list[dict[str, Any]]:
+    """给前端展示的账号列表（剔除凭证本体）。"""
+    data = load_accounts()
+    current = data.get("current") or ""
+    items = []
+    for item in data["accounts"]:
+        row = {k: v for k, v in item.items() if k != "credential"}
+        row["current"] = item.get("key") == current
+        items.append(row)
+    return items
+
+
+def current_account_key() -> str:
+    return load_accounts().get("current") or ""
+
+
+def switch_account(key: str) -> dict[str, Any] | None:
+    """切换当前账号：把该账号的凭证写成「当前凭证」。"""
+    with _LOCK:
+        data = load_accounts()
+        target = next((a for a in data["accounts"] if a.get("key") == str(key)), None)
+        if not target or not isinstance(target.get("credential"), dict):
+            return None
+        credential = dict(target["credential"])
+        credential["updated_at"] = int(time.time())
+        save_accounts({"current": str(key), "accounts": data["accounts"]})
+        globals()["_credential"] = credential
+        globals()["_credential_loaded"] = True
+        _write_json(env.CREDENTIAL_FILE, credential, 0o600)
+        return credential
+
+
+def _remember_on_save(credential: dict[str, Any]) -> None:
+    """save_credentials 的钩子：把凭证同步进账号列表。"""
+    try:
+        remember_account(credential)
+    except Exception:  # noqa: BLE001 账号登记失败不应阻断登录
+        pass
+
+
+def account_info_for(key: str) -> dict[str, Any]:
+    """读取某账号的展示信息（昵称/头像/会员）。"""
+    if not key:
+        return {}
+    for item in load_accounts()["accounts"]:
+        if item.get("key") == key:
+            return item
+    return {}
+
+
+def account_credentials(key: str) -> dict[str, Any] | None:
+    data = load_accounts()
+    target = next((a for a in data["accounts"] if a.get("key") == str(key)), None)
+    credential = target.get("credential") if target else None
+    return credential if isinstance(credential, dict) else None
+
+
+def remove_account(key: str) -> dict[str, Any]:
+    """从账号列表里删掉一个账号（仅列表，不影响其他账号）。"""
+    data = load_accounts()
+    key = str(key)
+    data["accounts"] = [a for a in data["accounts"] if a.get("key") != key]
+    if data.get("current") == key:
+        data["current"] = data["accounts"][0]["key"] if data["accounts"] else ""
+    save_accounts(data)
+    return {"removed": key, "current": data.get("current", "")}

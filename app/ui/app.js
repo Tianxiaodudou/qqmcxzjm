@@ -37,6 +37,8 @@ const state = {
   history: { items: [], record: new Map(), cache: new Map(), observer: null, timer: null, total: 0, loadedAt: 0 },
   settings: {},
   settingsLoadedAt: 0,
+  logs: { items: [], counts: {}, records: [], loadedAt: 0, tab: 'logs', level: '' },
+  accounts: { items: [], current: '' },
   qualities: [],
   login: { mode: '', sessionId: '', busy: false, timer: null },
   player: { songmid: '', lyrics: [], index: -1, timer: null, ready: false, song: null },
@@ -62,7 +64,7 @@ let loadingCount = 0;
 
 /* ---------------- 关于：开发者 / 发布者 ---------------- */
 const ABOUT = {
-  developer: { name: 'Tianxiaodudou', url: 'https://github.com/Tianxiaodudou' },
+  developer: { name: 'Tianxiaodudou', url: 'https://github.com/Tianxiaodudou?tab=repositories' },
   publisher: { name: 'A鱼儿', wechat: 'telegram96' },
 };
 
@@ -128,6 +130,7 @@ function bindAbout() {
     el.textContent = ABOUT.publisher.wechat;
   });
   on('#btn-copy-wechat', 'click', copyPublisherWechat);
+  bindAboutLinks();
 }
 
 function setLoading(on) {
@@ -231,6 +234,7 @@ function setLoggedIn(loggedIn) {
   dot.classList.toggle('online', state.loggedIn);
   dot.classList.toggle('offline', !state.loggedIn);
   $('#account-text').textContent = state.loggedIn ? '已登录' : '未登录';
+  if (was !== state.loggedIn || !state.accounts.loadedAt) loadAccounts();
   $('#btn-login').classList.toggle('hidden', state.loggedIn);
   $('#btn-logout').classList.toggle('hidden', !state.loggedIn);
   if (!was && state.loggedIn) schedulePrefetch();   // 刚登录：空闲时预取各页数据
@@ -290,6 +294,7 @@ const VIEW_TITLES = {
   fav: '我的歌单',
   tasks: '下载任务',
   history: '下载历史',
+  logs: '消息日志',
   settings: '设置',
 };
 
@@ -331,6 +336,7 @@ function switchView(view) {
   if (view === 'home') { applyHomePanel(); loadHome(); }
   if (view === 'tasks') { renderTasks(); refreshTasks(); }
   if (view === 'history') loadHistory();
+  if (view === 'logs') loadLogs();
   if (view === 'settings') loadSettings();
   if (view === 'fav') loadFav();
 }
@@ -588,8 +594,14 @@ function onceLoad(key, fn) {
 
 function loadHome(opts) { return onceLoad('home', () => loadHomeInner(opts)); }
 function loadFav(opts) { return onceLoad('fav', () => loadFavInner(opts)); }
-function loadHistory(opts) { return onceLoad('history', () => loadHistoryInner(opts)); }
-function loadSettings(opts) { return onceLoad('settings', () => loadSettingsInner(opts)); }
+/* 事件回调常被直接当作 opts 传入（DOM Event 也带 target），这里统一归一化：
+   参数不是「配置对象」时，一律视为「用户手动刷新」→ force。 */
+function asOpts(opts) {
+  if (opts && typeof opts === 'object' && !opts.target && !(opts instanceof Event)) return opts;
+  return opts ? { force: true } : undefined;
+}
+function loadHistory(opts) { return onceLoad('history', () => loadHistoryInner(asOpts(opts))); }
+function loadSettings(opts) { return onceLoad('settings', () => loadSettingsInner(asOpts(opts))); }
 function refreshTasks() { return onceLoad('tasks', () => refreshTasksInner()); }
 
 async function loadHomeInner({ force = false, background = false } = {}) {
@@ -1914,6 +1926,7 @@ function applySettings() {
   setHomeInput('#setting-home-newsongs', 'newsongs');
   setHomeInput('#setting-home-guess', 'guess');
   setHomeInput('#setting-home-radar', 'radar');
+  applyPushSettings();
 }
 
 /* 下载目录 = 已授权目录列表（选择与授权合并为一处） */
@@ -1975,6 +1988,13 @@ async function saveSettings() {
     return;
   }
   payload.select_max = Math.round(selectMaxInput);
+  // 消息推送（飞牛统一推送服务）
+  payload.push_base = ($('#setting-push-base') || {}).value || '';
+  payload.push_token = ($('#setting-push-token') || {}).value || '';
+  payload.push_on_success = !!($('#setting-push-success') || {}).checked;
+  payload.push_on_dup = !!($('#setting-push-dup') || {}).checked;
+  payload.push_on_fail = !!($('#setting-push-fail') || {}).checked;
+  payload.push_on_expire = !!($('#setting-push-expire') || {}).checked;
   // 首页四块推荐的数量上限：1 ~ 上限（下限交给 QQ 服务器：拿不到就少显示）
   const homeFields = [
     ['#setting-home-songlists', 'home_songlists_max', 1, 60, '推荐歌单'],
@@ -2272,10 +2292,13 @@ function bindEvents() {
 
   on('#btn-tasks-clear-all', 'click', () => clearTasks('all'));
 
-  on('#btn-history-reload', 'click', loadHistory);
+  on('#btn-history-reload', 'click', () => loadHistory({ force: true }));
   on('#btn-history-clear', 'click', clearHistory);
 
   on('#btn-save-settings', 'click', saveSettings);
+  on('#btn-push-test', 'click', sendPushTest);
+  bindLogsPanel();
+  bindAccountPanel();
   on('#btn-choose-dir', 'click', chooseDownloadDir);
   on('#setting-download-dir', 'change', saveDownloadDirFromSelect);
 
@@ -2400,6 +2423,9 @@ async function init() {
   Player.bind();
   initSdk();
   await refreshLoginStatus();
+  applySettings();          // 设置（含推送项）先落一遍，避免推送卡片空白
+  loadSettings().catch(() => {});
+  loadLogs({ background: true }).catch(() => {});   // 只为拿到消息日志未读徽标
   await refreshTasks();
   updateTaskBadge();
   startTaskPolling();
@@ -2412,3 +2438,249 @@ async function init() {
 }
 
 init();
+
+
+/* ==========================================================
+   消息日志 / 推送设置 / 多账号（v1.2.0 新增）
+   ========================================================== */
+
+/* ---------------- 消息日志 ---------------- */
+const LOG_LEVEL_LABEL = { success: '成功', error: '失败', warn: '提醒', info: '信息' };
+
+function loadLogs(opts) { return onceLoad('logs', () => loadLogsInner(asOpts(opts))); }
+
+/* 未读日志徽标：记录上次查看消息日志的时间点（本地存储），晚于该时间的条目算未读 */
+const LOGS_SEEN_KEY = 'qqmd.logs.seenAt';
+
+function logsSeenAt() {
+  const v = Number(window.localStorage.getItem(LOGS_SEEN_KEY) || 0);
+  return Number.isFinite(v) && v > 0 ? v : 0;
+}
+
+function updateLogsBadge() {
+  const badge = $('#logs-badge');
+  if (!badge) return;
+  const seen = logsSeenAt();
+  const n = (state.logs.items || []).filter((x) => (Number(x.time) || 0) > seen).length;
+  badge.textContent = n ? String(n) : '';
+  badge.classList.toggle('hidden', !n);
+}
+
+function markLogsSeen() {
+  const newest = (state.logs.items || []).reduce((m, x) => Math.max(m, Number(x.time) || 0), 0);
+  if (newest > logsSeenAt()) window.localStorage.setItem(LOGS_SEEN_KEY, String(newest));
+  updateLogsBadge();
+}
+
+async function loadLogsInner({ force = false, background = false } = {}) {
+  if (!force && !background && state.logs.loadedAt) {
+    renderLogs(); renderPushRecords();
+    if (state.view === 'logs') markLogsSeen(); else updateLogsBadge();
+    if (Date.now() - state.logs.loadedAt > 60000) loadLogs({ force: true, background: true });
+    return;
+  }
+  try {
+    const [logs, records] = await Promise.all([
+      api('/logs', { query: { limit: 200 } }),
+      api('/push/records', { query: { limit: 200 } }),
+    ]);
+    state.logs.items = logs.items || [];
+    state.logs.counts = logs.counts || {};
+    state.logs.records = records.items || [];
+    state.logs.loadedAt = Date.now();
+    renderLogs(); renderPushRecords();
+    if (state.view === 'logs') markLogsSeen(); else updateLogsBadge();
+  } catch (err) {
+    if (!background) handleError(err);
+  }
+}
+
+function renderLogs() {
+  const box = $('#logs-scroll'); if (!box) return;
+  const level = state.logs.level;
+  const items = state.logs.items.filter((x) => !level || x.level === level);
+  const c = state.logs.counts || {};
+  const summary = $('#logs-summary');
+  if (summary) summary.textContent = `共 ${state.logs.items.length} 条 · 成功 ${c.success || 0} · 失败 ${c.error || 0} · 提醒 ${c.warn || 0}`;
+  if (!items.length) {
+    box.innerHTML = `<div class="empty">${state.logs.items.length ? '该筛选下没有记录' : '暂无消息记录（下载成功 / 失败 / 已有同名文件 / 登录过期都会记在这里）'}</div>`;
+    return;
+  }
+  box.innerHTML = items.map((x) => `
+    <div class="log-row level-${esc(x.level)}">
+      <span class="log-time">${esc(fmtTime(x.time))}</span>
+      <span class="log-tag">${esc(LOG_LEVEL_LABEL[x.level] || x.level)}</span>
+      <div class="log-main">
+        <div class="log-title">${esc(x.title || x.event)}</div>
+        ${x.detail ? `<div class="log-detail">${esc(x.detail)}</div>` : ''}
+      </div>
+    </div>`).join('');
+}
+
+function renderPushRecords() {
+  const box = $('#push-scroll'); if (!box) return;
+  const items = state.logs.records || [];
+  if (!items.length) { box.innerHTML = '<div class="empty">尚无推送记录（可到设置页配置推送服务并发送测试通知）</div>'; return; }
+  box.innerHTML = items.map((x) => `
+    <div class="log-row ${x.ok ? 'level-success' : 'level-error'}">
+      <span class="log-time">${esc(fmtTime(x.time))}</span>
+      <span class="log-tag">${x.ok ? '已推送' : '失败'}</span>
+      <div class="log-main">
+        <div class="log-title">${esc(x.title || x.event)}</div>
+        <div class="log-detail">${esc(x.detail || x.error || '')}${x.status && !x.ok ? ` · HTTP ${esc(x.status)}` : ''}</div>
+      </div>
+    </div>`).join('');
+}
+
+function bindLogsPanel() {
+  const tabs = $$('[data-logs-tab]');
+  tabs.forEach((btn) => btn.addEventListener('click', () => {
+    state.logs.tab = btn.dataset.logsTab;
+    tabs.forEach((b) => b.classList.toggle('active', b === btn));
+    $('#logs-panel').classList.toggle('hidden', state.logs.tab !== 'logs');
+    $('#push-panel').classList.toggle('hidden', state.logs.tab !== 'push');
+  }));
+  $$('#logs-filter .chip').forEach((chip) => chip.addEventListener('click', () => {
+    state.logs.level = chip.dataset.level || '';
+    $$('#logs-filter .chip').forEach((c) => c.classList.toggle('active', c === chip));
+    renderLogs();
+  }));
+  on('#btn-logs-reload', 'click', () => loadLogs({ force: true }));
+  on('#btn-logs-clear', 'click', async () => {
+    if (!window.confirm('确定清空全部消息日志？')) return;
+    try {
+      await api('/logs/clear', { method: 'POST' });
+      await loadLogs({ force: true });
+      toast('消息日志已清空', 'success');
+    } catch (err) { handleError(err); }
+  });
+}
+
+
+/* ---------------- 账号卡片 / 多账号 ---------------- */
+function loadAccounts() { return onceLoad('accounts', () => loadAccountsInner()); }
+
+async function loadAccountsInner() {
+  try {
+    const data = await api('/account');
+    state.accounts = { items: data.accounts || [], current: data.current_key || '' };
+    state.accounts.loadedAt = Date.now();
+    renderAccounts(data);
+  } catch (err) { /* 未登录或网络异常：保持原样 */ }
+}
+
+function renderAccounts(data) {
+  const info = data || {};
+  const name = info.nickname || info.musicid || '';
+  const nameEl = $('#acc-name');
+  const subEl = $('#acc-sub');
+  const avatar = $('#acc-avatar');
+  if (avatar) {
+    if (info.avatar) { avatar.src = info.avatar; avatar.classList.remove('hidden'); }
+    else avatar.classList.add('hidden');
+  }
+  if (nameEl) nameEl.textContent = info.logged_in ? (name || '已登录') : '未登录';
+  if (subEl) {
+    if (!info.logged_in) subEl.textContent = '登录后可下载无损 / 母带';
+    else {
+      const parts = [];
+      if (info.vip_level || info.vip_desc) parts.push(`会员：${info.vip_level || info.vip_desc}`);
+      if (Number(info.vip_days_left) > 0) parts.push(`剩余 ${info.vip_days_left} 天`);
+      if (!parts.length) parts.push(info.musicid ? `账号 ${info.musicid}` : '已登录');
+      subEl.textContent = parts.join(' · ');
+    }
+  }
+  const list = $('#acc-list');
+  if (!list) return;
+  const items = (state.accounts && state.accounts.items) || [];
+  if (!info.logged_in || items.length <= 1) { list.innerHTML = ''; list.classList.add('hidden'); return; }
+  list.classList.remove('hidden');
+  list.innerHTML = items.map((a) => `
+    <div class="acc-item${a.current ? ' current' : ''}">
+      <button class="acc-pick" data-role="acc-switch" data-key="${esc(a.key)}"${a.current ? ' disabled' : ''}>
+        ${esc(a.nickname || a.musicid || a.key)}${a.current ? ' ·当前' : ''}
+      </button>
+      <button class="acc-del" data-role="acc-remove" data-key="${esc(a.key)}" title="移除该账号">✕</button>
+    </div>`).join('');
+}
+
+function bindAccountPanel() {
+  const sidebar = $('.sidebar');
+  if (!sidebar) return;
+  sidebar.addEventListener('click', async (ev) => {
+    const pick = ev.target.closest('button[data-role="acc-switch"]');
+    const del = ev.target.closest('button[data-role="acc-remove"]');
+    if (pick && !pick.disabled) {
+      try {
+        await withLoading(() => api('/account/switch', { method: 'POST', body: { key: pick.dataset.key } }));
+        toast('已切换账号', 'success');
+        state.settingsLoadedAt = 0; state.logs.loadedAt = 0;
+        await loadAccounts();
+        await refreshLoginStatus();
+      } catch (err) { handleError(err); }
+      return;
+    }
+    if (del) {
+      if (!window.confirm('移除该账号的本地登录态？（可重新扫码登录）')) return;
+      try {
+        await withLoading(() => api('/account/remove', { method: 'POST', body: { key: del.dataset.key } }));
+        toast('账号已移除', 'success');
+        await loadAccounts();
+        await refreshLoginStatus();
+      } catch (err) { handleError(err); }
+    }
+  });
+}
+
+
+/* ---------------- 消息推送设置 ---------------- */
+function applyPushSettings() {
+  const s = state.settings || {};
+  const base = $('#setting-push-base'); if (base) base.value = s.push_base || '';
+  const token = $('#setting-push-token'); if (token) token.value = s.push_token || '';
+  const set = (sel, val) => { const el = $(sel); if (el) el.checked = val !== false; };
+  set('#setting-push-success', s.push_on_success);
+  set('#setting-push-dup', s.push_on_dup);
+  set('#setting-push-fail', s.push_on_fail);
+  set('#setting-push-expire', s.push_on_expire);
+  const hint = $('#push-test-hint');
+  if (hint) hint.textContent = s.push_base ? '' : '未配置推送服务地址';
+}
+
+/** 发送测试通知：用「当前输入框」里的地址/Token 先保存，再触发一次测试推送。 */
+async function sendPushTest() {
+  const baseEl = $('#setting-push-base');
+  const tokenEl = $('#setting-push-token');
+  const base = (baseEl && baseEl.value.trim()) || '';
+  if (!base) { toast('请先填写推送服务地址', 'warn'); return; }
+  const hint = $('#push-test-hint');
+  try {
+    await withLoading(() => api('/settings', { method: 'POST', body: {
+      push_base: base,
+      push_token: (tokenEl && tokenEl.value.trim()) || '',
+    } }));
+    await loadSettings({ force: true });
+    const data = await withLoading(() => api('/push/test', { method: 'POST' }));
+    const result = data.result || {};
+    if (result.ok) {
+      toast('测试通知已发送，请查看飞牛推送服务', 'success', 4200);
+      if (hint) hint.textContent = '';
+    } else {
+      toast(`测试通知发送失败：${result.error || `HTTP ${result.status || '?'}`}`, 'error', 5200);
+      if (hint) hint.textContent = result.error || `HTTP ${result.status || '?'}`;
+    }
+    state.logs.loadedAt = 0;
+  } catch (err) { handleError(err); }
+}
+
+/* ---------------- 开发者 / 发布者链接 ---------------- */
+/** 点开发者名字 → 新标签打开 GitHub 的「公开仓库列表」页。 */
+function bindAboutLinks() {
+  $$('[data-about="developer"]').forEach((el) => {
+    el.addEventListener('click', (ev) => {
+      if (el.tagName === 'A' && el.getAttribute('href') && el.getAttribute('href') !== '#') return;
+      ev.preventDefault();
+      window.open(ABOUT.developer.url, '_blank', 'noopener,noreferrer');
+    });
+  });
+}

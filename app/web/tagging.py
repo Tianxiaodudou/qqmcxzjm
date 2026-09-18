@@ -10,8 +10,9 @@
 from __future__ import annotations
 
 import base64
+import io
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 ProgressFn = Callable[[float], None] | None
 
@@ -95,6 +96,13 @@ VORBIS_ALIASES = {
 
 class TaggingError(Exception):
     """标签写入失败。"""
+
+
+def _rewind(handle: Any) -> None:
+    """mutagen 保存时不会把文件指针回卷，内存文件（BytesIO）需手动 seek(0)。"""
+    seek = getattr(handle, "seek", None)
+    if callable(seek):
+        seek(0)
 
 
 def _mutagen():
@@ -235,16 +243,50 @@ def embed(
         raise TaggingError("音频文件不存在或为空")
 
     _report(progress, 0.1)
-    fields = writer(audio, meta, cover, lyric, translation)
+    fields = writer(str(audio), meta, cover, lyric, translation)
     _report(progress, 1.0)
     return {"ok": True, "format": suffix.lstrip("."), "fields": fields}
 
 
-def _write_flac(audio: Path, meta: dict, cover: bytes | None, lyric: str, translation: str) -> list[str]:
+def embed_bytes(
+    data: bytes,
+    ext: str,
+    meta: dict,
+    cover: bytes | None = None,
+    lyric: str = "",
+    translation: str = "",
+    progress: ProgressFn = None,
+) -> dict:
+    """内存版 embed：音频数据全程在内存里写标签，不产生临时文件。
+
+    Returns: {"ok": True, "format": 容器名, "fields": [...], "audio": 成品字节}
+    """
+    _mutagen()
+    suffix = ("." + str(ext or "").lstrip(".")).lower()
+    writers = {
+        ".flac": _write_flac,
+        ".ogg": _write_ogg,
+        ".mp3": _write_mp3,
+        ".m4a": _write_m4a,
+    }
+    writer = writers.get(suffix)
+    if writer is None:
+        raise TaggingError(f"暂不支持把标签写入 {suffix or '未知'} 格式")
+    if not data:
+        raise TaggingError("音频数据为空")
+
+    _report(progress, 0.1)
+    handle = io.BytesIO(bytes(data))
+    fields = writer(handle, meta, cover, lyric, translation)
+    _report(progress, 1.0)
+    return {"ok": True, "format": suffix.lstrip("."), "fields": fields, "audio": handle.getvalue()}
+
+
+def _write_flac(audio: Any, meta: dict, cover: bytes | None, lyric: str, translation: str) -> list[str]:
     from mutagen.flac import FLAC, Picture  # noqa: PLC0415
 
     data = _canonical(meta)
-    f = FLAC(str(audio))
+    f = FLAC(audio)
     written: list[str] = []
     for key, value in data.items():
         name = VORBIS_ALIASES.get(key, key)
@@ -265,11 +307,12 @@ def _write_flac(audio: Path, meta: dict, cover: bytes | None, lyric: str, transl
         f.clear_pictures()
         f.add_picture(picture)
         written.append("cover")
-    f.save()
+    _rewind(audio)
+    f.save(audio)
     return written
 
 
-def _write_mp3(audio: Path, meta: dict, cover: bytes | None, lyric: str, translation: str) -> list[str]:
+def _write_mp3(audio: Any, meta: dict, cover: bytes | None, lyric: str, translation: str) -> list[str]:
     from mutagen.id3 import (  # noqa: PLC0415
         APIC,
         COMM,
@@ -281,7 +324,7 @@ def _write_mp3(audio: Path, meta: dict, cover: bytes | None, lyric: str, transla
 
     data = _canonical(meta)
     try:
-        tags = ID3(str(audio))
+        tags = ID3(audio)
     except Exception:  # noqa: BLE001
         tags = ID3()
     written: list[str] = []
@@ -315,16 +358,17 @@ def _write_mp3(audio: Path, meta: dict, cover: bytes | None, lyric: str, transla
         tags.delall("APIC")
         tags.add(APIC(encoding=3, mime=_image_mime(cover), type=3, desc="Cover", data=cover))
         written.append("cover")
-    tags.save(str(audio), v2_version=3)
+    _rewind(audio)
+    tags.save(audio, v2_version=3)
     return written
 
 
-def _write_ogg(audio: Path, meta: dict, cover: bytes | None, lyric: str, translation: str) -> list[str]:
+def _write_ogg(audio: Any, meta: dict, cover: bytes | None, lyric: str, translation: str) -> list[str]:
     from mutagen.flac import Picture  # noqa: PLC0415
     from mutagen.oggvorbis import OggVorbis  # noqa: PLC0415
 
     data = _canonical(meta)
-    f = OggVorbis(str(audio))
+    f = OggVorbis(audio)
     written: list[str] = []
     for key, value in data.items():
         name = VORBIS_ALIASES.get(key, key)
@@ -344,15 +388,16 @@ def _write_ogg(audio: Path, meta: dict, cover: bytes | None, lyric: str, transla
         picture.data = cover
         f["metadata_block_picture"] = [base64.b64encode(picture.write()).decode("ascii")]
         written.append("cover")
-    f.save()
+    _rewind(audio)
+    f.save(audio)
     return written
 
 
-def _write_m4a(audio: Path, meta: dict, cover: bytes | None, lyric: str, translation: str) -> list[str]:
+def _write_m4a(audio: Any, meta: dict, cover: bytes | None, lyric: str, translation: str) -> list[str]:
     from mutagen.mp4 import MP4, MP4Cover, MP4FreeForm  # noqa: PLC0415
 
     data = _canonical(meta)
-    f = MP4(str(audio))
+    f = MP4(audio)
     written: list[str] = []
     for key, value in data.items():
         if key in ("track_no", "disc_no"):
@@ -389,7 +434,8 @@ def _write_m4a(audio: Path, meta: dict, cover: bytes | None, lyric: str, transla
         fmt = MP4Cover.FORMAT_PNG if _image_mime(cover) == "image/png" else MP4Cover.FORMAT_JPEG
         f["covr"] = [MP4Cover(cover, imageformat=fmt)]
         written.append("cover")
-    f.save()
+    _rewind(audio)
+    f.save(audio)
     return written
 
 

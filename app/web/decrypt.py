@@ -1,7 +1,8 @@
 """QQ 音乐加密文件解密（QMC2：MapCipher / RC4Cipher + Tencent TEA 密钥派生）。
 
-纯 Python 移植自 qmdec（MIT License）：crypto.py / map_cipher.py / rc4.py / musicex.py。
-不依赖任何 C 扩展，可在任意平台运行。
+移植自 qmdec（MIT License）：crypto.py / map_cipher.py / rc4.py / musicex.py。
+纯 Python 实现可在任意平台运行；若随包提供 C 加速库（csrc/qmc2_fast.c 编译出的
+libqmc2_fast.so）则自动启用（约 39 倍加速），缺失或不兼容时静默回退。
 
 术语：
 - ekey：接口下发的加密资源密钥（base64），需经 TEA 派生为最终密钥；
@@ -16,6 +17,15 @@ import math
 import struct
 from pathlib import Path
 from typing import Callable
+
+try:  # qmdec 的 C 加速（libqmc2_fast）：不可用时回退纯 Python
+    from .qmc_fast import decrypt as _fast_decrypt
+except Exception:  # noqa: BLE001
+    try:
+        from qmc_fast import decrypt as _fast_decrypt  # type: ignore
+    except Exception:  # noqa: BLE001
+        def _fast_decrypt(key: bytes, buf: bytearray, offset: int) -> bool:  # type: ignore[misc]
+            return False
 
 MUSICEX_MAGIC = b"musicex\x00"
 QTAG_MAGIC = b"QTag"
@@ -230,6 +240,8 @@ class MapCipher:
         return self._rotate(self.key[idx], idx & 0x07)
 
     def decrypt(self, buf: bytearray, offset: int) -> None:
+        if _fast_decrypt(self.key, buf, offset):
+            return
         for i in range(len(buf)):
             buf[i] ^= self._get_mask(offset + i)
 
@@ -269,6 +281,8 @@ class RC4Cipher:
         return idx % self.n
 
     def decrypt(self, buf: bytearray, offset: int) -> None:
+        if _fast_decrypt(self.key, buf, offset):
+            return
         to_process = len(buf)
         processed = 0
 
@@ -513,3 +527,135 @@ def decrypt_file(
             raise DecryptError("解密结果无法识别为音频格式（密钥可能不正确）")
 
     return {"encrypted": True, "ext": ext, "output": str(dst), "audio_size": audio_size}
+
+
+# --------------------------------------------------------------------------
+# 内存解密（半成品不落盘：中间数据全部在内存流转，只有成品写盘）
+# --------------------------------------------------------------------------
+def parse_tail_bytes(data: bytes) -> dict | None:
+    """bytes 版尾部解析。返回 None 表示文件未加密。"""
+    size = len(data)
+    if size < 16:
+        return None
+    if data[-8:] == MUSICEX_MAGIC:
+        raw = data[-16:-12]
+        if len(raw) < 4:
+            return None
+        tail_size = struct.unpack("<I", raw)[0]
+        if tail_size <= 0 or tail_size > 4096 or size < 16 + tail_size:
+            return None
+        tail = data[-(16 + tail_size):-16]
+        song_mid = tail[28:88].decode("utf-16-le", errors="ignore").rstrip("\x00") if len(tail) >= 88 else ""
+        filename = tail[88:184].decode("utf-16-le", errors="ignore").rstrip("\x00") if len(tail) >= 184 else ""
+        return {
+            "format": "musicex",
+            "song_mid": song_mid,
+            "filename": filename,
+            "audio_size": size - 16 - tail_size,
+            "ekey": "",
+        }
+    tail4 = data[-4:]
+    if tail4 in (QTAG_MAGIC, STAG_MAGIC):
+        raw = data[-8:-4]
+        if len(raw) < 4:
+            return None
+        ekey_len = struct.unpack("<I", raw)[0]
+        if ekey_len <= 0 or ekey_len > 4096 or size < 8 + ekey_len:
+            return None
+        audio_size = size - 8 - ekey_len
+        blob = data[audio_size:audio_size + ekey_len]
+        if tail4 == QTAG_MAGIC:
+            parts = blob.split(b",")
+            song_mid = parts[0].decode("utf-8", errors="ignore") if parts else ""
+            ekey = parts[1].decode("utf-8", errors="ignore") if len(parts) > 1 else ""
+        else:
+            song_mid = ""
+            ekey = blob.decode("utf-8", errors="ignore")
+        return {
+            "format": "legacy",
+            "song_mid": song_mid,
+            "filename": "",
+            "audio_size": audio_size,
+            "ekey": ekey.strip(),
+        }
+    return None
+
+
+def decrypt_buffer(buf: bytearray, key: bytes, progress: ProgressFn = None) -> str:
+    """原地解密内存缓冲，返回实际使用的密码名（map / rc4）。"""
+    cipher = make_cipher(key)
+    total = len(buf)
+    done = 0
+    while done < total:
+        size = min(CHUNK_SIZE, total - done)
+        chunk = buf[done:done + size]
+        cipher.decrypt(chunk, done)
+        buf[done:done + size] = chunk
+        done += size
+        if progress:
+            progress(done, total)
+    return "rc4" if isinstance(cipher, RC4Cipher) else "map"
+
+
+def decrypt_bytes(
+    data: bytes,
+    ekey_b64: str = "",
+    progress: ProgressFn = None,
+    encrypted_hint: bool = False,
+    suffix: str = "",
+) -> dict:
+    """内存解密：不产生任何中间文件。
+
+    返回 {"encrypted": bool, "ext": 输出扩展名, "audio": 解密后字节,
+          "audio_size": 音频字节数, "cipher": map/rc4/plain}。
+    """
+    audio = bytes(data)
+    size = len(audio)
+    if size <= 0:
+        raise DecryptError("原始音频为空，请重试")
+
+    tail = parse_tail_bytes(audio)
+    ekey = (ekey_b64 or "").strip()
+
+    if tail is None:
+        looks_encrypted = bool(encrypted_hint or (suffix or "").lower() in ENCRYPTED_SUFFIXES)
+        if not looks_encrypted:
+            ext = sniff_ext(audio[:16])
+            if ext == ".bin":
+                ext = suffix or ".bin"
+            if progress:
+                progress(size, size)
+            return {"encrypted": False, "ext": ext, "audio": audio, "audio_size": size, "cipher": "plain"}
+        if not ekey:
+            raise DecryptError("缺少解密密钥（ekey），请重新登录后再试")
+        final_key = derive_key(ekey)
+        if not final_key:
+            raise DecryptError("解密密钥无效，请重新登录后再试")
+        out = bytearray(audio)
+        cipher_name = decrypt_buffer(out, final_key, progress)
+        ext = sniff_ext(bytes(out[:16]))
+        if ext == ".bin":
+            ext = sniff_ext(audio[:16])
+            if ext == ".bin":
+                raise DecryptError("解密结果无法识别为音频格式（密钥可能不正确）")
+        return {"encrypted": True, "ext": ext, "audio": bytes(out), "audio_size": size, "cipher": cipher_name}
+
+    audio_size = int(tail.get("audio_size") or 0)
+    if audio_size <= 0 or audio_size > size:
+        raise DecryptError("加密文件尾部异常，无法定位音频数据")
+
+    ekey = (ekey_b64 or tail.get("ekey") or "").strip()
+    if not ekey:
+        raise DecryptError("缺少解密密钥（ekey），请重新登录后再试")
+    final_key = derive_key(ekey)
+    if not final_key:
+        raise DecryptError("解密密钥无效，请重新登录后再试")
+
+    out = bytearray(audio[:audio_size])
+    cipher_name = decrypt_buffer(out, final_key, progress)
+    ext = sniff_ext(bytes(out[:16]))
+    if ext == ".bin":
+        ext = sniff_ext(audio[:16])
+        if ext == ".bin":
+            raise DecryptError("解密结果无法识别为音频格式（密钥可能不正确）")
+    return {"encrypted": True, "ext": ext, "audio": bytes(out), "audio_size": audio_size, "cipher": cipher_name}
