@@ -57,8 +57,14 @@ class SettingsRequest(BaseModel):
     push_on_fail: bool | None = None
     push_on_dup: bool | None = None
     push_on_expire: bool | None = None
-    # 同类推送事件的去重窗口（分钟，0 = 不去重）
-    push_dedup_minutes: int | None = None
+    # 同类推送事件的去重窗口（分钟，0 = 不去重）：四类事件各自独立配置
+    push_dedup_success_minutes: int | None = None
+    push_dedup_dup_minutes: int | None = None
+    push_dedup_fail_minutes: int | None = None
+    push_dedup_expire_minutes: int | None = None
+    # 下载目录候选里要隐藏 / 恢复的目录（应用内名单，不动飞牛侧授权）
+    dir_hidden_add: str | None = None
+    dir_hidden_remove: str | None = None
     # 列表里的付费内容（无可用音源）怎么处理：gray 置灰不可选 / hide 直接隐藏
     paid_mode: str | None = None
     # 界面主题：light / dark / auto（跟随系统）
@@ -300,10 +306,15 @@ async def clear_history() -> dict[str, Any]:
 async def get_settings(request: Request) -> dict[str, Any]:
     settings = store.load_settings()
     auth = await _authorized_dirs(request)
+    hidden = set(store.clean_dir_list(settings.get("dir_hidden")))
+    current = str(settings.get("download_dir") or "")
+    dirs = [d for d in auth["dirs"] if d not in hidden or d == current]
     return {
         "ok": True,
         "settings": settings,
-        "authorized_dirs": auth["dirs"],
+        "authorized_dirs": dirs,
+        # 被用户移除的目录：设置页可按需「恢复」
+        "hidden_dirs": sorted(hidden),
         # 网关不可用时按"无授权信息"处理，避免开发/独立环境下锁死设置
         "authorized_ok": bool(auth["ok"]) or not fnos_api.available(),
         "authorized_hint": auth["hint"],
@@ -324,6 +335,11 @@ async def update_settings(payload: SettingsRequest, request: Request) -> dict[st
                     raise errors.BadRequestError("该目录未获得授权，请重新选择")
             extra.append(payload.download_dir)
         settings["download_dir"] = str(_validate_dir(payload.download_dir, extra))
+        # 重新选中的目录自动解除「已移除」标记：用户的选择就是最新意愿
+        settings["dir_hidden"] = [
+            d for d in store.clean_dir_list(settings.get("dir_hidden"))
+            if d != settings["download_dir"]
+        ]
     if payload.lyric_trans is not None:
         settings["lyric_trans"] = bool(payload.lyric_trans)
     if payload.meta_full is not None:
@@ -359,9 +375,24 @@ async def update_settings(payload: SettingsRequest, request: Request) -> dict[st
         value = getattr(payload, key)
         if value is not None:
             settings[key] = bool(value)
-    if payload.push_dedup_minutes is not None:
-        # 0 表示不去重；上限 24 小时，避免手滑填出天文数字把推送全吞掉
-        settings["push_dedup_minutes"] = max(0, min(24 * 60, int(payload.push_dedup_minutes)))
+    for key in store.DEDUP_MINUTE_SETTING_KEYS:
+        value = getattr(payload, key)
+        if value is not None:
+            # 0 表示不去重；上限 24 小时，避免手滑填出天文数字把推送全吞掉
+            settings[key] = max(0, min(24 * 60, int(value)))
+    if payload.dir_hidden_add is not None:
+        target = str(payload.dir_hidden_add).strip()
+        if not target:
+            raise errors.BadRequestError("目录不能为空")
+        if target == str(settings.get("download_dir") or ""):
+            raise errors.BadRequestError("该目录正被用作下载目录，请先切换下载目录再移除")
+        hidden = store.clean_dir_list(settings.get("dir_hidden"))
+        if target not in hidden:
+            hidden.append(target)
+        settings["dir_hidden"] = hidden
+    if payload.dir_hidden_remove is not None:
+        target = str(payload.dir_hidden_remove).strip()
+        settings["dir_hidden"] = [d for d in store.clean_dir_list(settings.get("dir_hidden")) if d != target]
     if payload.paid_mode is not None:
         mode = str(payload.paid_mode).strip().lower()
         if mode not in store.VALID_PAID_MODES:

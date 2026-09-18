@@ -200,13 +200,49 @@ class QQService(BlocksMixin):
             if service_field(identity, flag, default=0):
                 labels.append(label)
         level = service_field(identity, "level", default=0) or service_field(userinfo, "music_level", default=0)
-        expire = service_field(userinfo, "expire", default=0)
+
+        def _stamp(value: Any) -> int:
+            """把「到期时间」统一成秒级时间戳。
+
+            各接口给的形式不统一：秒级时间戳、毫秒级时间戳、``2026-01-01`` 这类日期
+            字符串。认不出来就当没有（0），不因为解析失败丢掉整个会员信息。
+            """
+            if value in (None, "", 0, "0"):
+                return 0
+            if isinstance(value, str):
+                text = value.strip()
+                if not text:
+                    return 0
+                if not text.isdigit():
+                    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d"):
+                        try:
+                            return int(time.mktime(time.strptime(text, fmt)))
+                        except ValueError:
+                            continue
+                    return 0
+                value = text
+            try:
+                number = int(float(value))
+            except (TypeError, ValueError):
+                return 0
+            if number > 10**12:      # 毫秒级
+                number //= 1000
+            return number if number > 10**9 else 0
+
+        # 豪华绿钻 / 十二平台 / 家庭组 / 情侣 / 八平台 / 星级 各有到期字段，
+        # 取最晚的那个当「会员剩余时长」，避免只认 userinfo.expire 而漏掉真正的到期日。
+        stamp = max(
+            _stamp(service_field(userinfo, "expire", default=0)),
+            _stamp(service_field(identity, "huge_vip_end", default="")),
+            _stamp(service_field(identity, "twelve_end", default="")),
+            _stamp(service_field(identity, "group_vip_end", default="")),
+            _stamp(service_field(identity, "cp_lover_end", default="")),
+            _stamp(service_field(identity, "eight_end", default="")),
+            _stamp(service_field(vip, "star_end", default="")),
+            _stamp(service_field(vip, "ystar_end", default="")),
+        )
         expire_at = ""
         days_left = 0
-        try:
-            stamp = int(expire or 0)
-        except (TypeError, ValueError):
-            stamp = 0
         if stamp > 0:
             expire_at = time.strftime("%Y-%m-%d", time.localtime(stamp))
             days_left = max(int((stamp - time.time()) // 86400), 0)

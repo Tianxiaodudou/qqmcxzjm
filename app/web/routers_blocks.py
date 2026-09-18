@@ -1,4 +1,4 @@
-"""首页新板块 API：信息流 / 排行榜 / 新碟 / 歌手 / MV / 热搜 / 每日30首 / 相似歌曲 / 我的收藏。
+"""首页新板块 API：信息流 / 排行榜 / 新碟 / 歌手 / 热搜 / 每日30首 / 相似歌曲 / 我的收藏。
 
 各板块「显示上限」统一从设置页读取（缺省用 env.DEFAULT_HOME_BLOCK_MAX）；
 「是否在首页显示」由前端按设置开关决定，接口本身总是可用。
@@ -129,40 +129,8 @@ async def singer_albums(
     return {"ok": True, "items": items}
 
 
-@router.get("/singer/mvs")
-async def singer_mvs(
-    singer_mid: str = Query(..., min_length=1),
-    limit: int = Query(30, ge=1, le=100),
-) -> dict[str, Any]:
-    items = await service.singer_mvs(singer_mid, limit)
-    return {"ok": True, "items": items}
-
-
 # --------------------------------------------------------------------------
-# 5. MV
-# --------------------------------------------------------------------------
-@router.get("/mv/list")
-async def mv_list(
-    area: int = Query(15, description="15=全部 8=内地 5=港台 6=欧美 7=韩国 4=日本"),
-    version: int = Query(7, description="7=全部 8=MV 13=现场 14=翻唱 15=舞蹈 16=影视 17=综艺 18=儿歌"),
-    order: int = Query(0, description="0=最新 1=最热"),
-    page: int = Query(1, ge=1),
-    limit: int | None = Query(None, ge=1, le=100),
-) -> dict[str, Any]:
-    if limit is None:
-        limit = _limit("home_mv_max", env.DEFAULT_HOME_BLOCK_MAX)
-    data = await service.mv_list(area, version, order, limit, page)
-    return {"ok": True, **data}
-
-
-@router.get("/mv/url")
-async def mv_url(vid: str = Query(..., min_length=1)) -> dict[str, Any]:
-    data = await service.mv_play_url(vid)
-    return {"ok": True, **data}
-
-
-# --------------------------------------------------------------------------
-# 6. 热搜
+# 5. 热搜
 # --------------------------------------------------------------------------
 @router.get("/search/hotkey")
 async def search_hotkey(limit: int | None = Query(None, ge=1, le=100)) -> dict[str, Any]:
@@ -173,7 +141,7 @@ async def search_hotkey(limit: int | None = Query(None, ge=1, le=100)) -> dict[s
 
 
 # --------------------------------------------------------------------------
-# 7. 每日30首
+# 6. 每日30首
 # --------------------------------------------------------------------------
 @router.get("/daily/songs")
 async def daily_songs(
@@ -187,7 +155,7 @@ async def daily_songs(
 
 
 # --------------------------------------------------------------------------
-# 8. 相似歌曲
+# 7. 相似歌曲
 # --------------------------------------------------------------------------
 @router.get("/song/similar")
 async def song_similar(
@@ -202,7 +170,7 @@ async def song_similar(
 
 
 # --------------------------------------------------------------------------
-# 9. 歌曲卡片增强（收藏数 / 评论数 / 标签 / 热评）
+# 8. 歌曲卡片增强（收藏数 / 评论数 / 标签 / 热评）
 # --------------------------------------------------------------------------
 @router.get("/song/stats")
 async def song_stats(
@@ -222,7 +190,7 @@ async def song_by_id(
 
 
 # --------------------------------------------------------------------------
-# 10. 我的收藏
+# 9. 我的收藏
 # --------------------------------------------------------------------------
 @router.get("/favourite/list")
 async def favourite_list(

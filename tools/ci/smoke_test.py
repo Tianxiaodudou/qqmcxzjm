@@ -38,17 +38,6 @@ fail = 0
 
 
 
-def _mv_url_filter_case():
-    """v1.3.1：MV 直链过滤——丢掉「只有域名没路径」的占位地址（未登录时 QQ 会回这种）。"""
-    from web.blocks import mv_url_playable
-
-    assert not mv_url_playable("http://mv6.music.tc.qq.com/"), "裸域名占位应被丢弃"
-    assert not mv_url_playable("https://mv.music.tc.qq.com"), "裸域名占位应被丢弃"
-    assert mv_url_playable("http://mv6.music.tc.qq.com/vkey/qmmv_x.f9815.mp4?fname=qmmv_x.f9815.mp4")
-    assert mv_url_playable("https://example.com/v.mp4")
-    return "占位2项已丢弃 / 真地址2项保留"
-
-
 def check(name, fn, optional=False):
 
     """执行单项检查；optional=True 时失败只告警（如依赖外网的用例）。"""
@@ -263,8 +252,6 @@ with TestClient(main.app) as client:
 
     # v1.1.21：完成任务退休（移出任务列表 -> 下载历史）
 
-    # v1.3.1：MV 直链里的裸域名占位要丢掉；专辑歌曲要真能取到（后者依赖外网，非致命）
-    check("mv-url-placeholders", _mv_url_filter_case)
     check(
         "album-songs-network",
         lambda: len(
@@ -282,6 +269,81 @@ with TestClient(main.app) as client:
 
     check("task-retire-keeps-unfinished", _retire_keeps_unfinished_case)
 
+
+
+    # v1.3.2：推送去重按事件分别设置（0 = 该类不去重，越界收敛到 1440）
+    def _dedup_settings_case():
+        client.post(
+            "/api/settings",
+            json={
+                "push_dedup_success_minutes": 0,
+                "push_dedup_dup_minutes": 30,
+                "push_dedup_fail_minutes": 99999,
+                "push_dedup_expire_minutes": 5,
+            },
+        )
+        got = client.get("/api/settings").json()["settings"]
+        assert got["push_dedup_success_minutes"] == 0, got
+        assert got["push_dedup_dup_minutes"] == 30, got
+        assert got["push_dedup_fail_minutes"] == 1440, got
+        assert got["push_dedup_expire_minutes"] == 5, got
+        return [got[k] for k in sorted(k for k in got if k.startswith("push_dedup_"))]
+
+    check("settings-push-dedup-per-event", _dedup_settings_case)
+
+    # v1.3.2：下载目录可「移除」（隐藏）/「恢复」，当前目录不允许移除
+    def _dir_hidden_case():
+        base = tempfile.mkdtemp(prefix="qqm_dirs_")
+        keep = os.path.join(base, "keep")
+        drop = os.path.join(base, "drop")
+        os.makedirs(keep, exist_ok=True)
+        os.makedirs(drop, exist_ok=True)
+        for target in (keep, drop, keep):
+            client.post("/api/settings", json={"download_dir": target, "dir_from_picker": True})
+        assert client.post("/api/settings", json={"dir_hidden_add": drop}).status_code == 200
+        data = client.get("/api/settings").json()
+        assert drop in data["hidden_dirs"], data["hidden_dirs"]
+        assert drop not in data["authorized_dirs"], data["authorized_dirs"]
+        blocked = client.post("/api/settings", json={"dir_hidden_add": keep})
+        assert blocked.status_code == 400, blocked.text
+        client.post("/api/settings", json={"dir_hidden_remove": drop})
+        assert drop not in client.get("/api/settings").json()["hidden_dirs"]
+        # 重新选中该目录时自动解除隐藏
+        client.post("/api/settings", json={"dir_hidden_add": drop})
+        client.post("/api/settings", json={"download_dir": drop, "dir_from_picker": True})
+        assert drop not in client.get("/api/settings").json()["hidden_dirs"]
+        return 4
+
+    check("settings-dir-hidden-restore", _dir_hidden_case)
+
+    # v1.3.2：会员剩余时长要能认多种到期字段（秒/毫秒时间戳、日期字符串）
+    def _vip_summary_case():
+        import time as _time
+
+        from web.service import QQService
+
+        stamp = int(_time.time()) + 86400 * 100
+        expect = _time.strftime("%Y-%m-%d", _time.localtime(stamp))
+        seconds = QQService._vip_summary(
+            {"identity": {"huge_vip": 1, "level": 8}, "userinfo": {"expire": stamp}}
+        )
+        assert seconds["vip_expire"] == expect, seconds
+        assert seconds["vip_days_left"] in (99, 100), seconds
+        assert "豪华绿钻" in seconds["vip_level"], seconds
+        millis = QQService._vip_summary(
+            {"identity": {"huge_vip_end": str(stamp * 1000)}, "userinfo": {"expire": 0}}
+        )
+        assert millis["vip_expire"] == expect, millis
+        bydate = QQService._vip_summary({"identity": {"twelve_end": "2031-05-06"}})
+        assert bydate["vip_expire"] == "2031-05-06", bydate
+        assert bydate["vip_days_left"] > 0, bydate
+        junk = QQService._vip_summary({"identity": {"vip": 1, "huge_vip_end": "abc"}})
+        assert junk["vip_expire"] == "" and junk["vip_days_left"] == 0, junk
+        past = QQService._vip_summary({"identity": {"vip": 1, "huge_vip_end": "2001-01-01"}})
+        assert past["vip_expire"] == "2001-01-01" and past["vip_days_left"] == 0, past
+        return 5
+
+    check("vip-summary-expire-fields", _vip_summary_case)
 
 
 print(f"SMOKE RESULT ok={ok} fail={fail}")

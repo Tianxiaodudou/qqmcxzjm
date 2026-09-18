@@ -1,4 +1,4 @@
-"""首页板块数据：QQ音乐首页信息流 / 榜单 / 新碟 / 歌手 / MV / 热搜 / 每日30首 / 相似歌曲 / 我的收藏.
+"""首页板块数据：QQ音乐首页信息流 / 榜单 / 新碟 / 歌手 / 热搜 / 每日30首 / 相似歌曲 / 我的收藏.
 
 这一层只负责「取数 + 归一化成前端好用的结构」，全部方法混入 QQService，
 沿用 service.py 里的字段兜底工具（_field / _to_int / song_summary ...）。
@@ -11,7 +11,6 @@ import asyncio
 import logging
 import time
 from typing import Any
-from urllib.parse import urlsplit
 
 logger = logging.getLogger("qqmusic.blocks")
 
@@ -23,20 +22,6 @@ _CACHE_MAX = 240
 # QQ音乐信息流卡片里，只有这两类能直接落到我们已有的详情页
 CARD_SONG = 200
 CARD_SONGLIST = 500
-
-
-def mv_url_playable(url: str) -> bool:
-    """判断 MV 直链是否真能播。
-
-    QQ音乐在未登录 / 无版权时会回一组「只有域名、没有路径」的占位地址
-    （如 ``http://mv6.music.tc.qq.com/``）。这种地址塞进 <video> 只会黑屏，
-    所以只认真正带路径（通常还带 vkey）的地址——过滤后前端能给出「先登录」的提示。
-    """
-    try:
-        parts = urlsplit(url)
-    except ValueError:
-        return False
-    return bool(parts.path.strip("/") or parts.query)
 
 
 def cache_get(key: tuple[Any, ...]) -> Any:
@@ -80,18 +65,6 @@ class BlocksMixin:
             "singer_mid": self._first_singer_mid(self._field(item, "singers", "singer", default=[])),
             "release_time": str(self._field(item, "release_time", "time_public", default="")),
             "total": self._to_int(self._field(item, "total_num", "songnum", "total", default=0)),
-        }
-
-    def mv_card(self, item: Any) -> dict[str, Any]:
-        return {
-            "vid": str(self._field(item, "vid", "mv_vid")),
-            "mv_id": self._to_int(self._field(item, "id", "mv_id", default=0)),
-            "name": str(self._field(item, "name", "title")),
-            "cover": str(self._field(item, "picurl", "cover", "pic")),
-            "singer": self._named_singers(self._field(item, "singers", "singer", default=[])),
-            "singer_mid": self._first_singer_mid(self._field(item, "singers", "singer", default=[])),
-            "duration": self._to_int(self._field(item, "duration", default=0)),
-            "playcnt": self._to_int(self._field(item, "playcnt", "play_cnt", default=0)),
         }
 
     def _named_singers(self, items: Any) -> str:
@@ -386,61 +359,10 @@ class BlocksMixin:
         cache_put(key, albums)
         return albums
 
-    async def singer_mvs(self, singer_mid: str, limit: int = 30) -> list[dict[str, Any]]:
-        key = ("singermvs", singer_mid, limit)
-        cached = cache_get(key)
-        if cached is not None:
-            return cached
-        response = await self.call(lambda c: c.singer.get_mv_list(singer_mid, limit, 1))
-        mvs = [self.mv_card(item) for item in (self._field(response, "mv_list", default=[]) or [])][:limit]
-        cache_put(key, mvs)
-        return mvs
+    # ------------------------------------------------------------------
 
     # ------------------------------------------------------------------
-    # 5. MV
-    # ------------------------------------------------------------------
-    async def mv_list(self, area: int = 15, version: int = 7, order: int = 0, limit: int = 30, page: int = 1) -> dict[str, Any]:
-        key = ("mvlist", area, version, order, limit, page)
-        cached = cache_get(key)
-        if cached is not None:
-            return cached
-        response = await self.call(
-            lambda c: c.mv.get_mv_list(area=area, version=version, order=order, num=limit, page=page)
-        )
-        items = [self.mv_card(item) for item in (self._field(response, "items", default=[]) or [])][:limit]
-        data = {"total": self._to_int(self._field(response, "total", default=0)), "items": items}
-        cache_put(key, data)
-        return data
-
-    async def mv_play_url(self, vid: str) -> dict[str, Any]:
-        """取 MV 播放直链。
-
-        QQ 侧每档清晰度给了三个字段：``url`` / ``freeflow_url`` / ``comm_url``。
-        未登录时 ``url`` 往往只有裸域名占位（``http://mv6.music.tc.qq.com/``），
-        真正能播的地址在 ``freeflow_url``（免流量 CDN，自带 vkey）。所以三个字段都收，
-        再按 mv_url_playable 过滤掉占位地址。
-        """
-        if not vid:
-            raise ValueError("缺少 MV vid")
-        response = await self.call(lambda c: c.mv.get_mv_urls([vid]))
-        entry = (self._field(response, "data", default={}) or {}).get(vid) or {}
-        urls: list[str] = []
-        m3u8 = ""
-        for item in self._field(entry, "mp4", default=[]) or []:
-            for field in ("url", "freeflow_url", "comm_url"):
-                candidates = self._field(item, field, default=[]) or []
-                if isinstance(candidates, str):
-                    candidates = [candidates]
-                for url in candidates:
-                    if isinstance(url, str) and url.startswith("http") and mv_url_playable(url):
-                        if url not in urls:
-                            urls.append(url)
-            if not m3u8:
-                m3u8 = str(self._field(item, "m3u8", default="") or "")
-        return {"vid": vid, "urls": urls, "m3u8": m3u8}
-
-    # ------------------------------------------------------------------
-    # 6. 热搜
+    # 5. 热搜
     # ------------------------------------------------------------------
     async def hot_keys(self, limit: int = 30) -> list[dict[str, Any]]:
         key = ("hotkey", limit)
@@ -458,7 +380,7 @@ class BlocksMixin:
         return keys
 
     # ------------------------------------------------------------------
-    # 7. 每日30首
+    # 6. 每日30首
     #    QQ音乐官方的「每日30首」是登录后按账号生成的私人歌单，匿名拿不到稳定的
     #    disstid；这里默认从公开歌单里挑一个日更的（搜索「每日30首」中播放量最高、
     #    曲目数 ≥30 的那个），设置里也可以直接填自己的歌单 ID。
@@ -498,7 +420,7 @@ class BlocksMixin:
         return best_id
 
     # ------------------------------------------------------------------
-    # 8. 相似歌曲
+    # 7. 相似歌曲
     # ------------------------------------------------------------------
     async def similar_songs(self, song_id: int = 0, songmid: str = "", limit: int = 30) -> dict[str, Any]:
         """按「种子歌」推相似歌曲；只给 mid 时先换成数字 ID（接口按数字 ID 工作）。"""
@@ -539,7 +461,7 @@ class BlocksMixin:
         return data
 
     # ------------------------------------------------------------------
-    # 9. 歌曲卡片增强：收藏数 / 评论数 / 标签 / 热评
+    # 8. 歌曲卡片增强：收藏数 / 评论数 / 标签 / 热评
     # ------------------------------------------------------------------
     async def song_stats(self, songmid: str, song_id: int = 0, limit: int = 6) -> dict[str, Any]:
         """歌曲的收藏数、评论数、标签与热评（热评需要登录，取不到就只回前面的）。"""
@@ -584,7 +506,7 @@ class BlocksMixin:
         }
 
     # ------------------------------------------------------------------
-    # 10. 我的收藏（歌曲 / 歌单 / 专辑）
+    # 9. 我的收藏（歌曲 / 歌单 / 专辑）
     # ------------------------------------------------------------------
     async def favourite(self, kind: str = "song", page: int = 1, num: int = 30) -> dict[str, Any]:
         kind = (kind or "song").lower()
@@ -598,7 +520,7 @@ class BlocksMixin:
         return {"kind": "song", "songs": await self.favourite_songs(page, num)}
 
     # ------------------------------------------------------------------
-    # 11. 信息流歌曲卡 → 歌曲详情（卡片只带数字 ID）
+    # 10. 信息流歌曲卡 → 歌曲详情（卡片只带数字 ID）
     # ------------------------------------------------------------------
     async def song_detail_by_id(self, song_id: int) -> dict[str, Any]:
         if not song_id:
@@ -612,7 +534,7 @@ class BlocksMixin:
         return result
 
     # ------------------------------------------------------------------
-    # 12. 相似歌曲的种子：最近下载过的一首（没有就让前端自己指定）
+    # 11. 相似歌曲的种子：最近下载过的一首（没有就让前端自己指定）
     # ------------------------------------------------------------------
     def recent_song_seed(self) -> dict[str, Any]:
         from . import store  # 局部导入：避免与 store 的循环依赖

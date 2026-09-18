@@ -466,6 +466,43 @@ input:focus, select:focus { border-color: var(--primary); }
 .field > label { font-size: 13px; color: var(--text-dim); }
 .field input[readonly] { color: var(--text-mute); }
 
+/* 设置卡片内容不越界：长路径 / 长提示自动换行，控件允许收缩 */
+.settings-card { overflow-wrap: anywhere; }
+.field, .field > label, .hint { min-width: 0; }
+.hint, .field > label { overflow-wrap: anywhere; word-break: break-word; }
+.field .inline { flex-wrap: wrap; }
+.field .inline > * { min-width: 0; }
+.field input, .field select { max-width: 100%; }
+
+/* 推送事件与去重：每类事件一行（勾选框 + 各自的去重分钟数） */
+.push-row { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
+.push-row .check {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-dim); cursor: pointer;
+}
+.push-row .check input { accent-color: var(--primary); }
+.push-row .push-dedup {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 12px; color: var(--text-mute);
+}
+.push-row .push-dedup input { width: 76px; }
+
+/* 已授权文件夹：可逐个移除，移除的进「已移除」可恢复 */
+.dir-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.dir-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-hover); font-size: 12px;
+}
+.dir-row .dir-path { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.dir-row .tag {
+  flex: 0 0 auto; font-size: 11px; padding: 1px 6px; border-radius: 999px;
+  background: rgba(49, 194, 124, .16); color: var(--primary);
+}
+.dir-hidden-head { margin-top: 8px; font-size: 12px; color: var(--text-mute); }
+.dir-hidden { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.dir-hidden .chip { max-width: 100%; overflow-wrap: anywhere; }
+
 /* ---------------- 播放器弹窗（player-window 组件风格） ---------------- */
 /* 播放器打开时锁住背景滚动，避免弹窗后面的页面跟着动 */
 body.has-player { overflow: hidden; }
@@ -915,7 +952,10 @@ html[data-theme="light"] .sidebar { border-right-color: var(--border); }
    ========================================================== */
 #view-settings .field {
   display: grid;
-  grid-template-columns: minmax(108px, 38%) 1fr;
+  /* 第二列必须写 minmax(0, 1fr)：只写 1fr 时该列 min 是 auto，
+     遇到不断行的长目录路径（select 的 option、.hint 里的长路径）会把网格撑到卡片外，
+     即用户反馈的「控件/文字超出设置卡片背景框」。 */
+  grid-template-columns: minmax(108px, 38%) minmax(0, 1fr);
   align-items: center;
   gap: 6px 14px;
 }
@@ -927,6 +967,14 @@ html[data-theme="light"] .sidebar { border-right-color: var(--border); }
 #view-settings .field > select,
 #view-settings .field > .check { grid-column: 2; }
 #view-settings .field > .check { margin: 2px 0; }
+/* 控件可收缩 + 长文本可断行：兜住超长目录名/提示文案 */
+#view-settings .field > .inline { min-width: 0; flex-wrap: wrap; }
+#view-settings .field > .inline > * { min-width: 0; max-width: 100%; }
+#view-settings .field > input,
+#view-settings .field > select { max-width: 100%; min-width: 0; }
+#view-settings .field > select { width: 100%; }
+#view-settings .field > .hint { overflow-wrap: anywhere; word-break: break-word; }
+#view-settings #dir-list { width: 100%; min-width: 0; }
 
 /* 页面最下方的统一「保存设置」条 */
 .settings-save {
@@ -955,7 +1003,7 @@ html[data-theme="light"] .sidebar { border-right-color: var(--border); }
 .tag-lock { background: rgba(242, 85, 90, .16); color: var(--danger); }
 
 
-/* ---------------- 首页新增板块（信息流 / 榜单 / 新碟 / 歌手 / MV / 热搜 / 每日 30 首） ---------------- */
+/* ---------------- 首页新增板块（信息流 / 榜单 / 新碟 / 歌手 / 热搜 / 每日 30 首） ---------------- */
 .block-mount { display: flex; flex-direction: column; gap: 12px; }
 
 /* 一行 chip（榜单分类 / 新碟区域 / 热搜词 / 信息流卡片） */
@@ -980,7 +1028,7 @@ html[data-theme="light"] .sidebar { border-right-color: var(--border); }
 .bulk-bar .spacer { flex: 1; }
 .block-bulk { margin-top: 10px; }
 
-/* 专辑 / MV 小卡片（复用 .card-grid 的网格布局，只是格子更小） */
+/* 专辑小卡片（复用 .card-grid 的网格布局，只是格子更小） */
 .card-grid.mini { grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 12px; }
 .mini-card {
   display: flex; flex-direction: column; gap: 6px; padding: 0;

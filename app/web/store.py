@@ -119,7 +119,6 @@ LIMIT_SETTING_KEYS = (
     "home_chart_max",
     "home_newalbum_max",
     "home_singer_max",
-    "home_mv_max",
     "home_hotkey_max",
     "home_daily_max",
     "home_similar_max",
@@ -142,15 +141,43 @@ def _coerce_limit(value: Any, default: int) -> int:
         return number
     return int(default)
 
+
+# 每个推送事件各自的「同类事件去重窗口」设置键（分钟，0=不去重）
+DEDUP_MINUTE_SETTING_KEYS = (
+    "push_dedup_success_minutes",   # 下载成功
+    "push_dedup_dup_minutes",       # 已有同名文件
+    "push_dedup_fail_minutes",      # 下载失败
+    "push_dedup_expire_minutes",    # 登录态过期
+)
+
+
+def clean_dir_list(value: Any, limit: int = 50) -> list[str]:
+    """把目录名单归一化：只留非空字符串、去重、截断到 limit 条。"""
+    if not isinstance(value, list):
+        return []
+    items: list[str] = []
+    for raw in value:
+        text = str(raw or "").strip()
+        if text and text not in items:
+            items.append(text)
+        if len(items) >= limit:
+            break
+    return items
+
 DEFAULT_SETTINGS: dict[str, Any] = {
     "lyric_trans": env.DEFAULT_LYRIC_TRANS,
     "download_dir": env.WIZARD_MEDIA_DIR or str(env.DATA_DIR / "downloads"),
+    # 下载目录候选里被用户「移除」的目录（应用内隐藏名单；不动飞牛侧的授权记录）
+    "dir_hidden": [],
     # 列表里的付费内容（无可用音源）怎么显示：gray=置灰且不可选中，hide=直接隐藏
     "paid_mode": "gray",
     # 界面主题：light / dark / auto（跟随系统）
     "theme": "auto",
-    # 同类事件推送去重窗口（分钟，0=不去重）
-    "push_dedup_minutes": 3,
+    # 同类事件推送去重窗口（分钟，0=不去重）：四种事件各自独立配置
+    "push_dedup_success_minutes": 3,
+    "push_dedup_dup_minutes": 1,
+    "push_dedup_fail_minutes": 1,
+    "push_dedup_expire_minutes": 5,
     "interval_min_ms": env.DEFAULT_INTERVAL_MIN_MS,
     "interval_max_ms": env.DEFAULT_INTERVAL_MAX_MS,
     "meta_full": env.DEFAULT_META_FULL,
@@ -165,7 +192,6 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "home_chart_max": env.DEFAULT_HOME_CHART_MAX,
     "home_newalbum_max": env.DEFAULT_HOME_NEWALBUM_MAX,
     "home_singer_max": env.DEFAULT_HOME_BLOCK_MAX,
-    "home_mv_max": env.DEFAULT_HOME_MV_MAX,
     "home_hotkey_max": env.DEFAULT_HOME_HOTKEY_MAX,
     "home_daily_max": env.DEFAULT_HOME_DAILY_MAX,
     "home_similar_max": env.DEFAULT_HOME_SIMILAR_MAX,
@@ -174,7 +200,6 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "home_chart_show": True,
     "home_newalbum_show": True,
     "home_singer_show": True,
-    "home_mv_show": True,
     "home_hotkey_show": True,
     "home_daily_show": True,
     "home_similar_show": True,
@@ -210,6 +235,11 @@ def load_settings() -> dict[str, Any]:
             value = _coerce_limit(merged.get(key), DEFAULT_SETTINGS[key])
             merged[key] = value
         merged["daily_songlist_id"] = max(0, _coerce_int(merged.get("daily_songlist_id"), 0))
+        # 分事件推送去重：0~1440（24 小时）之外一律钳回，避免手滑填出天量把推送全吞掉
+        for key in DEDUP_MINUTE_SETTING_KEYS:
+            merged[key] = max(0, min(24 * 60, _coerce_int(merged.get(key), DEFAULT_SETTINGS[key])))
+        # 目录隐藏名单：脏数据（非列表/空串/重复）一律清理
+        merged["dir_hidden"] = clean_dir_list(merged.get("dir_hidden"))
         return merged
 
 

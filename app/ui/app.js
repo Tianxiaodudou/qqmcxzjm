@@ -767,22 +767,22 @@ function renderHomeHub() {
   applyHomePanel();
 }
 
-/* ---------------- 首页新增板块（信息流 / 榜单 / 新碟 / 歌手 / MV / 热搜 / 每日 30 首） ----------------
+/* ---------------- 首页新增板块（信息流 / 榜单 / 新碟 / 歌手 / 热搜 / 每日 30 首） ----------------
  * 入口卡片与面板骨架都由这里动态生成（index.html 只留了 #home-panels-extra 挂载点），
  * 点开某个板块才去拉它的接口：首页本身仍然只请求原有的 4 个推荐接口。 */
-const BLOCK_PANEL_KEYS = ['feed', 'chart', 'newalbum', 'singer', 'mv', 'hotkey', 'daily'];
+const BLOCK_PANEL_KEYS = ['feed', 'chart', 'newalbum', 'singer', 'hotkey', 'daily'];
 const EXTRA_HOME_KEYS = BLOCK_PANEL_KEYS.concat(['similar', 'fav']);
 const EXTRA_HOME_LABELS = {
   feed: '首页信息流', chart: '排行榜', newalbum: '新碟上架', singer: '热门歌手',
-  mv: 'MV 精选', hotkey: '热搜榜', daily: '每日 30 首', similar: '相似歌曲', fav: '我的收藏',
+  hotkey: '热搜榜', daily: '每日 30 首', similar: '相似歌曲', fav: '我的收藏',
 };
-const EXTRA_HOME_ICONS = { feed: '📰', chart: '🏆', newalbum: '💿', singer: '🎤', mv: '🎬', hotkey: '🔥', daily: '📅', similar: '🎯', fav: '❤️' };
+const EXTRA_HOME_ICONS = { feed: '📰', chart: '🏆', newalbum: '💿', singer: '🎤', hotkey: '🔥', daily: '📅', similar: '🎯', fav: '❤️' };
 const EXTRA_HOME_DESC = {
   feed: 'QQ音乐首页推的卡片', chart: '热歌榜 / 飙升榜 / 新歌榜', newalbum: '最近发布的新专辑',
-  singer: '歌手榜，点进去看他的歌', mv: '最新 MV（未登录可能没有播放地址）', hotkey: '大家都在搜什么',
+  singer: '歌手榜，点进去看他的歌', hotkey: '大家都在搜什么',
   daily: '每天更新的一批新歌', similar: '在歌曲「详情」里按种子歌推荐', fav: '打开收藏页，下载我喜欢的歌',
 };
-const EXTRA_HOME_UNIT = { feed: '首', chart: '首', newalbum: '张', singer: '位', mv: '支', hotkey: '个', daily: '首', similar: '首', fav: '首' };
+const EXTRA_HOME_UNIT = { feed: '首', chart: '首', newalbum: '张', singer: '位', hotkey: '个', daily: '首', similar: '首', fav: '首' };
 const EXTRA_BLOCK_FALLBACK = 30;
 
 /** 该板块是否显示（设置里关掉就整块隐藏） */
@@ -899,7 +899,6 @@ async function loadExtraBlock(key, force = false) {
     else if (key === 'chart') await loadChartBlock(body, limit, st);
     else if (key === 'newalbum') await loadAlbumBlock(body, limit, st);
     else if (key === 'singer') await loadSingerBlock(body, limit, st);
-    else if (key === 'mv') await loadMvBlock(body, limit, st);
     else if (key === 'hotkey') await loadHotkeyBlock(body, limit, st);
     else if (key === 'daily') await loadDailyBlock(body, limit, st);
     st.loadedAt = Date.now();
@@ -1110,21 +1109,6 @@ async function loadSingerBlock(body, limit, st) {
   setBlockMeta('singer', `${items.length} 位歌手`);
 }
 
-async function loadMvBlock(body, limit, st) {
-  const data = await api('/mv/list', { query: { limit } });
-  const items = data.items || [];
-  st.count = items.length;
-  body.innerHTML = items.length
-    ? `<div class="card-grid mini">${items.map((mv) => `
-        <button class="mini-card" data-mv-vid="${esc(mv.vid || '')}" data-mv-name="${esc(mv.name || '')}">
-          <img class="mini-cover" ${mv.cover ? `src="${esc(mv.cover)}"` : ''} alt="" loading="lazy" />
-          <span class="mini-name" title="${esc(mv.name || '')}">${esc(mv.name || '')}</span>
-          <span class="mini-sub">${esc(mv.singer || '')}${mv.playcnt ? ` · ${Number(mv.playcnt).toLocaleString()} 次播放` : ''}</span>
-        </button>`).join('')}</div><p class="hint">点卡片在弹出的播放器里看 MV（QQ音乐对未登录用户可能不给播放地址）。</p>`
-    : '<div class="empty">没有拿到 MV 列表</div>';
-  setBlockMeta('mv', `${items.length} 支 MV`);
-}
-
 async function loadHotkeyBlock(body, limit, st) {
   const data = await api('/search/hotkey', { query: { limit } });
   const items = data.items || [];
@@ -1149,7 +1133,7 @@ async function loadDailyBlock(body, limit, st) {
   setBlockMeta('daily', `${title} · ${songs.length} 首`);
 }
 
-/* ---------- 面板内的下钻：专辑 / 歌手 / MV / 热搜 / 歌曲详情 ---------- */
+/* ---------- 面板内的下钻：专辑 / 歌手 / 热搜 / 歌曲详情 ---------- */
 
 async function expandBlockSongs(key, mountId, title, loader) {
   const mount = $(`#${mountId}`);
@@ -1219,30 +1203,6 @@ async function expandSingerAlbums(mid, name) {
       : '<div class="empty">没有公开专辑</div>';
   } catch (err) {
     holder.innerHTML = `<div class="empty">${esc((err && err.message) || '加载失败')}</div>`;
-    handleError(err, { silent: true });
-  }
-}
-
-async function openMvModal(vid, name) {
-  if (!vid) return;
-  $('#mv-title').textContent = name || 'MV';
-  $('#mv-hint').textContent = '正在获取播放地址…';
-  const video = $('#mv-video');
-  video.removeAttribute('src');
-  video.load();
-  showModal('modal-mv');
-  try {
-    const data = await api('/mv/url', { query: { vid } });
-    const url = (data.urls || [])[0] || data.m3u8 || '';
-    if (!url) {
-      $('#mv-hint').textContent = '没拿到播放地址：QQ音乐对未登录用户不返回 MV 直链，先到「账号」里登录再试。';
-      return;
-    }
-    video.src = url;
-    $('#mv-hint').textContent = '若浏览器无法直接播放（QQ 的 MV 直链有时禁跨域），可右键视频选「另存为」，或用播放器右下角 ⋮ 菜单里的「下载」。';
-    video.play().catch(() => {});
-  } catch (err) {
-    $('#mv-hint').textContent = '播放地址获取失败，可能需要在「账号」里登录后再试。';
     handleError(err, { silent: true });
   }
 }
@@ -1339,8 +1299,6 @@ function onExtraHomeClick(ev) {
     loadExtraBlock(key, true);
     return;
   }
-  const mv = inPanel('[data-mv-vid]');
-  if (mv) { openMvModal(mv.dataset.mvVid, mv.dataset.mvName); return; }
   const hot = inPanel('[data-hot-key]');
   if (hot) { jumpToSearch(hot.dataset.hotKey); return; }
   const sSongs = inPanel('[data-singer-songs]');
@@ -2653,6 +2611,7 @@ async function loadSettingsInner({ force = false, background = false } = {}) {
     state.settings = data.settings || {};
     state.authorizedDirs = data.authorized_dirs || [];
     state.authorizedHint = data.authorized_hint || '';
+    state.hiddenDirs = data.hidden_dirs || [];
     state.settingsLoadedAt = Date.now();
     applySettings();
   } catch (err) {
@@ -2681,6 +2640,26 @@ if (themeMedia && themeMedia.addEventListener) {
   });
 }
 
+/* 推送去重：四类事件各自一个分钟数（设置键 push_dedup_<event>_minutes，0 = 不去重） */
+const PUSH_DEDUP_EVENTS = [
+  { event: 'success', key: 'push_dedup_success_minutes', fallback: 3, label: '下载成功' },
+  { event: 'dup', key: 'push_dedup_dup_minutes', fallback: 1, label: '已有同名文件' },
+  { event: 'fail', key: 'push_dedup_fail_minutes', fallback: 1, label: '下载失败' },
+  { event: 'expire', key: 'push_dedup_expire_minutes', fallback: 5, label: 'QQ音乐登录态过期' },
+];
+const pushDedupInput = (event) => $(`#setting-push-dedup-${event}-minutes`);
+
+/** 把设置里的四类去重分钟数回填到各自的输入框（缺省/异常时用兜底值）。 */
+function fillPushDedupInputs(settings) {
+  const s = settings || {};
+  for (const item of PUSH_DEDUP_EVENTS) {
+    const input = pushDedupInput(item.event);
+    if (!input) continue;
+    const value = Number(s[item.key]);
+    input.value = Number.isFinite(value) && value >= 0 ? value : item.fallback;
+  }
+}
+
 /** 用已有的 state.settings 渲染设置页（缓存命中时直接调用，不再发请求） */
 function applySettings() {
   const s = state.settings || {};
@@ -2691,8 +2670,7 @@ function applySettings() {
   if (themeSel) themeSel.value = ['light', 'dark', 'auto'].indexOf(s.theme) >= 0 ? s.theme : 'auto';
   const paidSel = $('#setting-paid-mode');
   if (paidSel) paidSel.value = paidMode();
-  const dedupInput = $('#setting-push-dedup-minutes');
-  if (dedupInput) dedupInput.value = Number(s.push_dedup_minutes) > 0 ? s.push_dedup_minutes : 3;
+  fillPushDedupInputs(s);
   applyTheme();
   renderDirOptions();
   $('#setting-interval-min').value = s.interval_min_ms || 300;
@@ -2738,6 +2716,51 @@ function renderDirOptions() {
     if (!window.trimApp) parts.push('（独立浏览器中需在飞牛应用内打开本页面才能调用选择器）');
     hint.textContent = parts.join(' ');
   }
+  renderDirManaged();
+}
+
+/** 已授权文件夹列表：每个都能「移除」（当前下载目录除外），移除的进「已移除」可一键恢复。 */
+function renderDirManaged() {
+  const box = $('#dir-list');
+  if (!box) return;
+  const authorized = state.authorizedDirs || [];
+  const hidden = state.hiddenDirs || [];
+  const current = (state.settings && state.settings.download_dir) || '';
+  const rows = authorized.map((dir) => {
+    const isCurrent = dir === current;
+    return `<div class="dir-row${isCurrent ? ' current' : ''}">
+      <span class="dir-path" title="${esc(dir)}">${esc(dir)}</span>
+      ${isCurrent ? '<span class="tag">当前</span>' : ''}
+      <button class="btn btn-sm btn-ghost" data-dir-remove="${esc(dir)}"${isCurrent ? ' disabled title="当前下载目录不能移除，请先切换到别的目录"' : ''}>移除</button>
+    </div>`;
+  }).join('');
+  const hiddenRows = hidden.length
+    ? `<div class="dir-hidden-head">已移除（点一下恢复）：</div><div class="dir-hidden">${hidden.map((dir) =>
+        `<button class="chip" data-dir-restore="${esc(dir)}" title="恢复 ${esc(dir)}">${esc(dir)} ＋恢复</button>`).join('')}</div>`
+    : '';
+  box.innerHTML = (rows || '<div class="empty">还没有已授权的文件夹，点上面的「选择文件夹…」添加。</div>') + hiddenRows;
+}
+
+/** 移除一个已授权目录（只是从列表里收起，随时可恢复；当前下载目录不允许移除）。 */
+async function removeAuthorizedDir(dir) {
+  const current = (state.settings && state.settings.download_dir) || '';
+  if (!dir) return;
+  if (dir === current) { toast('当前下载目录不能移除，请先切换到别的目录', 'warn'); return; }
+  try {
+    await withLoading(() => api('/settings', { method: 'POST', body: { dir_hidden_add: dir } }));
+    toast('已从列表移除，可在「已移除」里恢复', 'success');
+    await loadSettings({ force: true });
+  } catch (err) { handleError(err); }
+}
+
+/** 恢复一个被移除的目录。 */
+async function restoreAuthorizedDir(dir) {
+  if (!dir) return;
+  try {
+    await withLoading(() => api('/settings', { method: 'POST', body: { dir_hidden_remove: dir } }));
+    toast('已恢复该文件夹', 'success');
+    await loadSettings({ force: true });
+  } catch (err) { handleError(err); }
 }
 
 /* 下拉点选即保存（与授权结果一致，无需再点保存设置） */
@@ -2781,13 +2804,17 @@ async function saveSettings() {
   payload.push_on_dup = !!($('#setting-push-dup') || {}).checked;
   payload.push_on_fail = !!($('#setting-push-fail') || {}).checked;
   payload.push_on_expire = !!($('#setting-push-expire') || {}).checked;
-  // 同类事件推送去重分钟数（0 = 不去重）
-  const dedupValue = Number(($('#setting-push-dedup-minutes') || {}).value);
-  if (!Number.isFinite(dedupValue) || dedupValue < 0 || dedupValue > 1440) {
-    toast('推送去重分钟数需在 0 ~ 1440（分钟）之间', 'warn');
-    return;
+  // 四类事件各自的推送去重分钟数（0 = 该类不去重）
+  for (const item of PUSH_DEDUP_EVENTS) {
+    const input = pushDedupInput(item.event);
+    const value = Number((input || {}).value);
+    if (!Number.isFinite(value) || value < 0 || value > 1440) {
+      toast(`「${item.label}」的去重分钟数需在 0 ~ 1440 之间`, 'warn');
+      if (input) input.focus();
+      return;
+    }
+    payload[item.key] = Math.round(value);
   }
-  payload.push_dedup_minutes = Math.round(dedupValue);
   // 界面：主题 + 付费内容处理方式（整页一次提交）
   payload.theme = ($('#setting-theme') || {}).value || 'auto';
   payload.paid_mode = ($('#setting-paid-mode') || {}).value || 'gray';
@@ -3125,13 +3152,19 @@ function bindEvents() {
     state.settings = Object.assign({}, state.settings, { theme: (ev.target && ev.target.value) || 'auto' });
     applyTheme();
   });
-  // 去重分钟数：输入时同步「同类事件 N 分钟内只推一次」文案
-  on('#setting-push-dedup-minutes', 'input', syncDedupLabels);
   on('#btn-push-test', 'click', sendPushTest);
   bindLogsPanel();
   bindAccountPanel();
   on('#btn-choose-dir', 'click', chooseDownloadDir);
   on('#setting-download-dir', 'change', saveDownloadDirFromSelect);
+
+  // 已授权文件夹的「移除 / 恢复」用事件委托，列表重绘后依然有效
+  on('#dir-list', 'click', (ev) => {
+    const rm = ev.target.closest('button[data-dir-remove]');
+    if (rm) { if (!rm.disabled) removeAuthorizedDir(rm.dataset.dirRemove); return; }
+    const rs = ev.target.closest('button[data-dir-restore]');
+    if (rs) restoreAuthorizedDir(rs.dataset.dirRestore);
+  });
 
   on('#task-list', 'click', (ev) => {
     const btn = ev.target.closest('button[data-role="retry"]');
@@ -3400,6 +3433,14 @@ async function loadAccountsInner() {
   } catch (err) { /* 未登录或网络异常：保持原样 */ }
 }
 
+/** 会员剩余时长的最简文案：优先「剩余 N 天」，其次到期日，最后原始描述。 */
+function vipSummaryText(info) {
+  const days = Number(info.vip_days_left) > 0 ? Number(info.vip_days_left) : 0;
+  if (days > 0) return `会员剩余 ${days} 天`;
+  if (info.vip_expire) return `会员有效期至 ${info.vip_expire}`;
+  return info.vip_desc || '';
+}
+
 function renderAccounts(data) {
   const info = data || {};
   const name = info.nickname || info.musicid || '';
@@ -3415,10 +3456,22 @@ function renderAccounts(data) {
     if (!info.logged_in) subEl.textContent = '登录后可下载无损 / 母带';
     else {
       const parts = [];
-      if (info.vip_level || info.vip_desc) parts.push(`会员：${info.vip_level || info.vip_desc}`);
-      if (Number(info.vip_days_left) > 0) parts.push(`剩余 ${info.vip_days_left} 天`);
+      if (info.vip_level) parts.push(`会员：${info.vip_level}`);
+      const vip = vipSummaryText(info);
+      if (vip) parts.push(vip);
       if (!parts.length) parts.push(info.musicid ? `账号 ${info.musicid}` : '已登录');
       subEl.textContent = parts.join(' · ');
+      subEl.title = parts.join(' · ');
+    }
+  }
+  // 左下角状态行：把「会员剩余时长」直接摆出来，不用点开账号区才知道
+  const sideText = $('#account-text');
+  if (sideText) {
+    if (!info.logged_in) { sideText.textContent = '未登录'; sideText.title = ''; }
+    else {
+      const vip = vipSummaryText(info);
+      sideText.textContent = vip ? `已登录 · ${vip}` : '已登录';
+      sideText.title = info.vip_desc || '';
     }
   }
   const list = $('#acc-list');
@@ -3465,15 +3518,6 @@ function bindAccountPanel() {
 
 
 /* ---------------- 消息推送设置 ---------------- */
-/** 推送事件里的「同一事件 N 分钟内只推一次」文案跟随设置项变化。 */
-function syncDedupLabels() {
-  const minutes = Number(($('#setting-push-dedup-minutes') || {}).value);
-  const text = Number.isFinite(minutes) && minutes > 0
-    ? `同类事件 ${minutes} 分钟内只推一次`
-    : '同类事件不去重，每次都推';
-  $$('[data-dedup-label]').forEach((el) => { el.textContent = text; });
-}
-
 function applyPushSettings() {
   const s = state.settings || {};
   const base = $('#setting-push-base'); if (base) base.value = s.push_base || '';
@@ -3483,9 +3527,7 @@ function applyPushSettings() {
   set('#setting-push-dup', s.push_on_dup);
   set('#setting-push-fail', s.push_on_fail);
   set('#setting-push-expire', s.push_on_expire);
-  const dedup = $('#setting-push-dedup-minutes');
-  if (dedup) dedup.value = Number(s.push_dedup_minutes) > 0 ? s.push_dedup_minutes : 3;
-  syncDedupLabels();
+  fillPushDedupInputs(s);
   const hint = $('#push-test-hint');
   if (hint) hint.textContent = s.push_base ? '' : '未配置推送服务地址';
 }

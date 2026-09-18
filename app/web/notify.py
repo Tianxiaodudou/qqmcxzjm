@@ -3,8 +3,8 @@
 - 请求：POST {base}/api/push，头 `Authorization: Bearer <token>`，体 `{"title","content","type"}`；
 - base / token 由用户在「设置 → 消息推送」里填写，留空则只记日志不推送；
 - 事件：下载成功 / 已有同名文件 / 下载失败 / 登录态过期；
-- 去重按「事件类别」：同类事件在 push_dedup_minutes 分钟内只推送一次
-  （该分钟数可在「设置 → 消息推送」里改，0 = 不去重）；
+- 去重按「事件类别」：四类事件（下载成功 / 已有同名文件 / 下载失败 / 登录态过期）
+  的去重窗口各自独立配置（设置里的 push_dedup_*_minutes，0 = 不去重）；
 - 每次事件都会写一条消息日志，每次推送（成功或失败）都会写一条推送记录；
 - 推送在后台线程里排队执行，队列排空后线程自动退出（不常驻）。
 """
@@ -18,7 +18,15 @@ from typing import Any
 
 from . import env, store
 
-# 同类事件的默认去重窗口（秒）：设置项 push_dedup_minutes 会覆盖它（分钟 → 秒）
+# 事件 → 对应的「同类事件去重分钟数」设置键（四类事件各自独立配置）
+DEDUP_SETTING_KEYS = {
+    "success": "push_dedup_success_minutes",
+    "duplicate": "push_dedup_dup_minutes",
+    "failed": "push_dedup_fail_minutes",
+    "expired": "push_dedup_expire_minutes",
+}
+
+# 兜底去重窗口（秒）：设置文件里没有对应键时使用（test 事件从不去重）
 DEDUP_WINDOWS = {
     "success": 180,
     "duplicate": 60,
@@ -29,11 +37,17 @@ DEDUP_WINDOWS = {
 
 
 def dedup_window(event: str) -> int:
-    """同类事件的去重窗口（秒）：设置里填的分钟数优先，0 或未配置 = 不去重。"""
+    """该事件的去重窗口（秒）：读它自己的分钟设置（上限 24 小时），0 = 不去重。"""
+    key = DEDUP_SETTING_KEYS.get(event)
+    if not key:
+        return 0
     try:
-        minutes = int(float(store.load_settings().get("push_dedup_minutes", 0) or 0))
+        raw = store.load_settings().get(key)
+        if raw in (None, ""):
+            return DEDUP_WINDOWS.get(event, 0)
+        minutes = int(float(raw))
     except (TypeError, ValueError):
-        minutes = 0
+        return DEDUP_WINDOWS.get(event, 0)
     if minutes <= 0:
         return 0
     return min(24 * 60, minutes) * 60

@@ -155,7 +155,7 @@
             <ul class="song-list" id="recommend-radar"></ul>
           </div>
 
-          <!-- 新增板块（首页信息流 / 排行榜 / 新碟上架 / 热门歌手 / MV 精选 / 热搜榜 / 每日 30 首）
+          <!-- 新增板块（首页信息流 / 排行榜 / 新碟上架 / 热门歌手 / 热搜榜 / 每日 30 首）
                的面板与入口卡片都由 app.js 按设置动态生成，这里只留挂载点 -->
           <div id="home-panels-extra"></div>
         </section>
@@ -311,6 +311,7 @@
                 <select id="setting-download-dir"></select>
                 <button class="btn btn-ghost" id="btn-choose-dir">选择文件夹…</button>
               </div>
+              <div id="dir-list" class="dir-list"></div>
               <p class="hint" id="dir-hint">点「选择文件夹…」在飞牛内嵌文件夹选择器中点选一个文件夹：选择的同时即完成授权（trim.file.userAccess），下载目录与访问权限一步到位，无需再单独配置。</p>
             </div>
             <div class="field">
@@ -389,18 +390,24 @@
               <p class="hint">每次推送都会带上请求头 <span class="mono">Authorization: Bearer &lt;Token&gt;</span>。</p>
             </div>
             <div class="field">
-              <label>推送事件（可多选）</label>
-              <label class="check"><input type="checkbox" id="setting-push-success" /> 下载成功（<span data-dedup-label>同类事件 3 分钟内只推一次</span>）</label>
-              <label class="check"><input type="checkbox" id="setting-push-dup" /> 已有同名文件（<span data-dedup-label>同类事件 3 分钟内只推一次</span>）</label>
-              <label class="check"><input type="checkbox" id="setting-push-fail" /> 下载失败（<span data-dedup-label>同类事件 3 分钟内只推一次</span>）</label>
-              <label class="check"><input type="checkbox" id="setting-push-expire" /> QQ音乐登录态过期</label>
-            </div>
-            <div class="field">
-              <label for="setting-push-dedup-minutes">同类事件去重（分钟）</label>
-              <div class="inline">
-                <input type="number" id="setting-push-dedup-minutes" min="0" max="1440" step="1" /> <span class="muted">分钟内只推一次</span>
+              <label>推送事件与去重（可多选，各类独立设置）</label>
+              <div class="push-row">
+                <label class="check"><input type="checkbox" id="setting-push-success" /> 下载成功</label>
+                <span class="push-dedup">同类事件去重 <input type="number" id="setting-push-dedup-success-minutes" min="0" max="1440" step="1" /> 分钟内只推一次（0 = 不去重）</span>
               </div>
-              <p class="hint">下载成功 / 已有同名文件 / 下载失败这三类事件，在这个时间窗内只推一次，避免一次下载几十首时刷屏；填 0 表示不去重（每次都推）。</p>
+              <div class="push-row">
+                <label class="check"><input type="checkbox" id="setting-push-dup" /> 已有同名文件</label>
+                <span class="push-dedup">同类事件去重 <input type="number" id="setting-push-dedup-dup-minutes" min="0" max="1440" step="1" /> 分钟内只推一次（0 = 不去重）</span>
+              </div>
+              <div class="push-row">
+                <label class="check"><input type="checkbox" id="setting-push-fail" /> 下载失败</label>
+                <span class="push-dedup">同类事件去重 <input type="number" id="setting-push-dedup-fail-minutes" min="0" max="1440" step="1" /> 分钟内只推一次（0 = 不去重）</span>
+              </div>
+              <div class="push-row">
+                <label class="check"><input type="checkbox" id="setting-push-expire" /> QQ音乐登录态过期</label>
+                <span class="push-dedup">同类事件去重 <input type="number" id="setting-push-dedup-expire-minutes" min="0" max="1440" step="1" /> 分钟内只推一次（0 = 不去重）</span>
+              </div>
+              <p class="hint">每类事件在各自的「去重窗口」里只推一次，避免一次下载几十首时刷屏。四类互不影响：想让「下载失败」每次都收到，就把它的分钟数填 0。</p>
             </div>
             <div class="inline">
               <button class="btn btn-ghost" id="btn-push-test">发送测试通知</button>
@@ -441,14 +448,6 @@
                 <input type="number" id="setting-home-singer-max" min="1" max="100" step="1" /> <span class="muted">位</span>
               </div>
               <p class="hint">点歌手进入其热门歌曲列表。</p>
-            </div>
-            <div class="field">
-              <label for="setting-home-mv-max">MV 精选</label>
-              <div class="inline">
-                <label class="check"><input type="checkbox" id="setting-home-mv-show" /> 显示</label>
-                <input type="number" id="setting-home-mv-max" min="1" max="100" step="1" /> <span class="muted">支</span>
-              </div>
-              <p class="hint">MV 只能在线播放（点卡片在浏览器新标签打开），不参与下载。</p>
             </div>
             <div class="field">
               <label for="setting-home-hotkey-max">热搜榜</label>
@@ -640,20 +639,6 @@
         </div>
         <h4 class="block-title">相似歌曲 <span class="muted" id="song-detail-similar-count"></span></h4>
         <ul class="song-list" id="song-detail-similar"></ul>
-      </div>
-    </div>
-  </div>
-
-  <!-- MV 播放弹窗：拿直链后用原生 video 播放（QQ音乐 MV 直链是 mp4） -->
-  <div class="modal hidden" id="modal-mv">
-    <div class="modal-card modal-wide">
-      <header class="modal-head">
-        <h3 id="mv-title">MV</h3>
-        <button class="icon-btn" data-close="modal-mv" title="关闭">✕</button>
-      </header>
-      <div class="modal-body">
-        <video class="mv-video" id="mv-video" controls playsinline preload="none"></video>
-        <p class="hint" id="mv-hint"></p>
       </div>
     </div>
   </div>
