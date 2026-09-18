@@ -109,6 +109,38 @@ def is_logged_in() -> bool:
 # --------------------------------------------------------------------------
 VALID_PAID_MODES = ("gray", "hide")
 VALID_THEMES = ("light", "dark", "auto")
+# 首页各板块的显示上限（1~100）：从设置文件读到的值统一钳到这个区间，越界/脏数据一律归位
+LIMIT_SETTING_KEYS = (
+    "home_songlists_max",
+    "home_newsongs_max",
+    "home_guess_max",
+    "home_radar_max",
+    "home_feed_max",
+    "home_chart_max",
+    "home_newalbum_max",
+    "home_singer_max",
+    "home_mv_max",
+    "home_hotkey_max",
+    "home_daily_max",
+    "home_similar_max",
+    "home_fav_max",
+)
+
+
+def _coerce_int(value: Any, default: int) -> int:
+    """尽量转成整数，失败返回默认值。"""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _coerce_limit(value: Any, default: int) -> int:
+    """板块显示上限：1~100 之外的脏数据钳回默认值。"""
+    number = _coerce_int(value, default)
+    if 1 <= number <= 100:
+        return number
+    return int(default)
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "lyric_trans": env.DEFAULT_LYRIC_TRANS,
@@ -128,6 +160,29 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "home_newsongs_max": env.DEFAULT_HOME_NEWSONGS_MAX,
     "home_guess_max": env.DEFAULT_HOME_GUESS_MAX,
     "home_radar_max": env.DEFAULT_HOME_RADAR_MAX,
+    # 首页新增板块：每块的显示上限（1~100）与是否显示（可隐藏）
+    "home_feed_max": env.DEFAULT_HOME_FEED_MAX,
+    "home_chart_max": env.DEFAULT_HOME_CHART_MAX,
+    "home_newalbum_max": env.DEFAULT_HOME_NEWALBUM_MAX,
+    "home_singer_max": env.DEFAULT_HOME_BLOCK_MAX,
+    "home_mv_max": env.DEFAULT_HOME_MV_MAX,
+    "home_hotkey_max": env.DEFAULT_HOME_HOTKEY_MAX,
+    "home_daily_max": env.DEFAULT_HOME_DAILY_MAX,
+    "home_similar_max": env.DEFAULT_HOME_SIMILAR_MAX,
+    "home_fav_max": env.DEFAULT_HOME_FAV_MAX,
+    "home_feed_show": True,
+    "home_chart_show": True,
+    "home_newalbum_show": True,
+    "home_singer_show": True,
+    "home_mv_show": True,
+    "home_hotkey_show": True,
+    "home_daily_show": True,
+    "home_similar_show": True,
+    "home_fav_show": True,
+    # 歌曲卡片增强：收藏数 / 评论数 / 榜单标签（进列表才拉，故默认开）
+    "song_stats_show": True,
+    # 「每日30首」用的歌单 ID：0=自动挑一个公开日推歌单
+    "daily_songlist_id": env.DEFAULT_DAILY_SONGLIST_ID,
     "push_base": env.DEFAULT_PUSH_BASE,
     "push_token": env.DEFAULT_PUSH_TOKEN,
     "push_on_success": True,
@@ -150,6 +205,11 @@ def load_settings() -> dict[str, Any]:
             merged["paid_mode"] = DEFAULT_SETTINGS["paid_mode"]
         if merged.get("theme") not in VALID_THEMES:
             merged["theme"] = DEFAULT_SETTINGS["theme"]
+        # 各板块上限：非数字或越界一律钳到 1~100，避免前端拿着脏值去请求
+        for key in LIMIT_SETTING_KEYS:
+            value = _coerce_limit(merged.get(key), DEFAULT_SETTINGS[key])
+            merged[key] = value
+        merged["daily_songlist_id"] = max(0, _coerce_int(merged.get("daily_songlist_id"), 0))
         return merged
 
 

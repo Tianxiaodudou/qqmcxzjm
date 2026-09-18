@@ -380,6 +380,7 @@ function songRowHtml(song, index, checked) {
     </div>
     <span class="duration">${fmtDuration(song.interval)}</span>
     <div class="ops">
+      <button class="btn btn-sm btn-ghost" data-role="detail" data-songmid="${esc(song.songmid)}" data-songid="${esc(String(song.songid || ''))}" data-song-name="${esc(song.name)}" data-song-singer="${esc(song.singer || '')}">详情</button>
       <button class="btn btn-sm btn-ghost" disabled>试听</button>
       <button class="btn btn-sm btn-primary" disabled>下载</button>
     </div>`;
@@ -393,6 +394,7 @@ function songRowHtml(song, index, checked) {
     </div>
     <span class="duration">${fmtDuration(song.interval)}</span>
     <div class="ops">
+      <button class="btn btn-sm btn-ghost" data-role="detail" data-songmid="${esc(song.songmid)}" data-songid="${esc(String(song.songid || ''))}" data-song-name="${esc(song.name)}" data-song-singer="${esc(song.singer || '')}">详情</button>
       <button class="btn btn-sm btn-ghost" data-role="preview" data-songmid="${esc(song.songmid)}">试听</button>
       <button class="btn btn-sm btn-primary" data-role="download" data-songmid="${esc(song.songmid)}">下载</button>
     </div>`;
@@ -764,6 +766,669 @@ function renderHomeHub() {
   if (sub) sub.textContent = n(state.home.songlists) ? `共 ${n(state.home.songlists)} 个歌单（点歌单卡片查看其中的歌曲）` : '';
   applyHomePanel();
 }
+
+/* ---------------- 首页新增板块（信息流 / 榜单 / 新碟 / 歌手 / MV / 热搜 / 每日 30 首） ----------------
+ * 入口卡片与面板骨架都由这里动态生成（index.html 只留了 #home-panels-extra 挂载点），
+ * 点开某个板块才去拉它的接口：首页本身仍然只请求原有的 4 个推荐接口。 */
+const BLOCK_PANEL_KEYS = ['feed', 'chart', 'newalbum', 'singer', 'mv', 'hotkey', 'daily'];
+const EXTRA_HOME_KEYS = BLOCK_PANEL_KEYS.concat(['similar', 'fav']);
+const EXTRA_HOME_LABELS = {
+  feed: '首页信息流', chart: '排行榜', newalbum: '新碟上架', singer: '热门歌手',
+  mv: 'MV 精选', hotkey: '热搜榜', daily: '每日 30 首', similar: '相似歌曲', fav: '我的收藏',
+};
+const EXTRA_HOME_ICONS = { feed: '📰', chart: '🏆', newalbum: '💿', singer: '🎤', mv: '🎬', hotkey: '🔥', daily: '📅', similar: '🎯', fav: '❤️' };
+const EXTRA_HOME_DESC = {
+  feed: 'QQ音乐首页推的卡片', chart: '热歌榜 / 飙升榜 / 新歌榜', newalbum: '最近发布的新专辑',
+  singer: '歌手榜，点进去看他的歌', mv: '最新 MV（未登录可能没有播放地址）', hotkey: '大家都在搜什么',
+  daily: '每天更新的一批新歌', similar: '在歌曲「详情」里按种子歌推荐', fav: '打开收藏页，下载我喜欢的歌',
+};
+const EXTRA_HOME_UNIT = { feed: '首', chart: '首', newalbum: '张', singer: '位', mv: '支', hotkey: '个', daily: '首', similar: '首', fav: '首' };
+const EXTRA_BLOCK_FALLBACK = 30;
+
+/** 该板块是否显示（设置里关掉就整块隐藏） */
+function extraHomeShown(key) {
+  const value = (state.settings || {})[`home_${key}_show`];
+  return value === undefined ? true : value !== false;
+}
+
+/** 该板块最多显示多少条（设置值不合法时退回 30） */
+function extraHomeLimit(key) {
+  const value = Number((state.settings || {})[`home_${key}_max`]);
+  return Number.isFinite(value) && value >= 1 ? Math.round(value) : EXTRA_BLOCK_FALLBACK;
+}
+
+/** 板块运行时状态：loadedAt / 已选集合 / 子分类 / 原始歌曲 */
+function extraState(key) {
+  if (!state.home.extra) state.home.extra = {};
+  if (!state.home.extra[key]) state.home.extra[key] = { loadedAt: 0, sel: new Set(), sub: {}, songs: [] };
+  return state.home.extra[key];
+}
+
+function showModal(id) { const el = $(`#${id}`); if (el) el.classList.remove('hidden'); }
+function hideModal(id) { const el = $(`#${id}`); if (el) el.classList.add('hidden'); }
+
+/** 建好入口卡片与面板骨架（幂等：重复调用只补缺的部分） */
+function ensureExtraHomeDom() {
+  const mount = $('#home-panels-extra');
+  if (!mount) return;
+  const hub = $('#home-hub');
+  if (hub) {
+    EXTRA_HOME_KEYS.forEach((key) => {
+      if (hub.querySelector(`.home-entry[data-panel="${key}"]`)) return;
+      const btn = document.createElement('button');
+      btn.className = 'home-entry';
+      btn.dataset.panel = key;
+      btn.innerHTML = `
+        <span class="he-ico">${EXTRA_HOME_ICONS[key]}</span>
+        <span class="he-text">
+          <span class="he-title">${esc(EXTRA_HOME_LABELS[key])}</span>
+          <span class="he-desc">${esc(EXTRA_HOME_DESC[key])}</span>
+        </span>
+        <span class="he-count" id="hub-count-${key}"></span>`;
+      hub.appendChild(btn);
+    });
+  }
+  EXTRA_HOME_KEYS.forEach((key) => {
+    if (mount.querySelector(`[data-panel="${key}"]`)) return;
+    const panel = document.createElement('div');
+    panel.className = 'home-panel hidden';
+    panel.dataset.panel = key;
+    panel.innerHTML = extraPanelShell(key);
+    mount.appendChild(panel);
+  });
+}
+
+/** 面板骨架：标题 + 返回 + 刷新 + 各自的挂载点 */
+function extraPanelShell(key) {
+  const head = `
+    <div class="section-head">
+      <div class="head-left">
+        <button class="btn btn-ghost" data-home-back="1">← 返回</button>
+        <h2>${esc(EXTRA_HOME_LABELS[key])}</h2>
+      </div>
+      <div class="inline">
+        <span class="muted" id="block-${key}-meta"></span>
+        <button class="btn btn-ghost" data-block-reload="${key}">刷新</button>
+      </div>
+    </div>`;
+  const tabs = ['chart', 'newalbum'].indexOf(key) >= 0 ? `<div class="chip-row" id="block-${key}-tabs"></div>` : '';
+  const expand = ['newalbum', 'singer'].indexOf(key) >= 0 ? `<div class="block-expand hidden" id="block-${key}-expand"></div>` : '';
+  return `${head}${tabs}${expand}<div class="block-mount" id="block-${key}-body"><div class="empty">加载中…</div></div>`;
+}
+
+/** 同步入口卡片的数量文字与隐藏状态（设置变化、数据加载完成后调用） */
+function syncExtraHomeEntries() {
+  const hub = $('#home-hub');
+  if (!hub) return;
+  EXTRA_HOME_KEYS.forEach((key) => {
+    const entry = hub.querySelector(`.home-entry[data-panel="${key}"]`);
+    if (entry) entry.classList.toggle('hidden', !extraHomeShown(key));
+  });
+  const setCount = (key, text) => { const el = $(`#hub-count-${key}`); if (el) el.textContent = text; };
+  BLOCK_PANEL_KEYS.forEach((key) => {
+    const st = (state.home.extra || {})[key];
+    if (!st || !st.loadedAt) { setCount(key, '点开看看'); return; }
+    setCount(key, st.count ? `${st.count} ${EXTRA_HOME_UNIT[key]}` : '暂无');
+  });
+  setCount('fav', state.loggedIn ? '打开收藏页' : '需要登录');
+  setCount('similar', '在歌曲「详情」里');
+}
+
+/** 打开板块（首次进入才拉数据） */
+async function openExtraBlock(key) {
+  if (BLOCK_PANEL_KEYS.indexOf(key) < 0) return;
+  state.home.panel = key;
+  applyHomePanel();
+  const st = extraState(key);
+  if (!st.loadedAt) await loadExtraBlock(key);
+}
+
+/** 拉取某个板块的数据；force=true 表示用户点了刷新/换了子分类 */
+async function loadExtraBlock(key, force = false) {
+  if (BLOCK_PANEL_KEYS.indexOf(key) < 0) return;
+  const st = extraState(key);
+  if (!force && st.loadedAt && Date.now() - st.loadedAt < 60000) return;
+  const body = $(`#block-${key}-body`);
+  if (!body) return;
+  const limit = extraHomeLimit(key);
+  body.innerHTML = '<div class="empty">加载中…</div>';
+  const meta = $(`#block-${key}-meta`);
+  if (meta) meta.textContent = '';
+  try {
+    if (key === 'feed') await loadFeedBlock(body, limit, st);
+    else if (key === 'chart') await loadChartBlock(body, limit, st);
+    else if (key === 'newalbum') await loadAlbumBlock(body, limit, st);
+    else if (key === 'singer') await loadSingerBlock(body, limit, st);
+    else if (key === 'mv') await loadMvBlock(body, limit, st);
+    else if (key === 'hotkey') await loadHotkeyBlock(body, limit, st);
+    else if (key === 'daily') await loadDailyBlock(body, limit, st);
+    st.loadedAt = Date.now();
+    syncExtraHomeEntries();
+  } catch (err) {
+    body.innerHTML = `<div class="empty">${esc((err && err.message) || '加载失败')}</div>`;
+    handleError(err, { silent: true });
+  }
+}
+
+function setBlockMeta(key, text) { const el = $(`#block-${key}-meta`); if (el) el.textContent = text; }
+
+/** 设置页里某板块的上限输入框：老四块用 #setting-home-x，新板块用 #setting-home-x-max */
+function homeMaxInput(key) { return $(`#setting-home-${key}-max`) || $(`#setting-home-${key}`); }
+
+/* ---------- 板块内歌曲列表：勾选 / 全选 / 反选 / 下载选中 ---------- */
+
+function blockBulkHtml(key) {
+  return `
+    <div class="bulk-bar block-bulk">
+      <label class="checkbox"><input type="checkbox" data-role="block-all" data-block="${esc(key)}" /></label>
+      <span class="muted" data-block-count="${esc(key)}">未选择</span>
+      <span class="spacer"></span>
+      <button class="btn btn-sm btn-ghost" data-role="block-invert" data-block="${esc(key)}">反选</button>
+      <button class="btn btn-sm btn-primary" data-role="block-download" data-block="${esc(key)}">下载选中</button>
+    </div>`;
+}
+
+/** 把一组歌曲渲染成一个可勾选的列表（挂到 mount 里），key 用于区分勾选集合 */
+function renderBlockSongs(mount, songs, key, emptyText = '暂无歌曲') {
+  if (!mount) return;
+  const st = extraState(key);
+  const list = visibleSongs(songs || []);
+  if (!list.length) {
+    mount.innerHTML = `<ul class="song-list"><li class="empty">${esc(emptyText)}</li></ul>`;
+    return;
+  }
+  const ul = document.createElement('ul');
+  ul.className = 'song-list';
+  ul.dataset.block = key;
+  ul.innerHTML = list
+    .map((song, i) => `<li class="song-item${st.sel.has(song.songmid) ? ' selected' : ''}${lockedForUi(song) ? ' locked' : ''}" data-songmid="${esc(song.songmid)}">${songRowHtml(song, i, st.sel.has(song.songmid))}</li>`)
+    .join('');
+  mount.innerHTML = '';
+  mount.appendChild(ul);
+}
+
+/** 重新同步某个板块的勾选样式与计数 */
+function syncBlockSelection(key) {
+  const st = extraState(key);
+  const root = document.querySelector('#home-panels-extra');
+  if (root) {
+    root.querySelectorAll(`ul.song-list[data-block="${key}"] .song-item`).forEach((li) => {
+      const on = st.sel.has(li.dataset.songmid);
+      li.classList.toggle('selected', on);
+      const box = li.querySelector('input[data-role="pick"]');
+      if (box) box.checked = on;
+    });
+  }
+  document.querySelectorAll(`[data-block-count="${key}"]`).forEach((el) => {
+    el.textContent = st.sel.size ? `已选 ${st.sel.size} 首` : '未选择';
+  });
+  const visible = visibleSongs(st.songs || []);
+  document.querySelectorAll(`[data-role="block-all"][data-block="${key}"]`).forEach((el) => {
+    el.checked = visible.length > 0 && visible.every((s) => st.sel.has(s.songmid));
+  });
+}
+
+function toggleBlockSong(key, songmid, on) {
+  if (!key || !songmid) return;
+  const st = extraState(key);
+  if (on) st.sel.add(songmid); else st.sel.delete(songmid);
+  syncBlockSelection(key);
+}
+
+/** 下载某个板块里勾选的歌曲 */
+function downloadBlockSelection(key) {
+  const st = extraState(key);
+  const picked = (st.songs || []).filter((s) => s && s.songmid && st.sel.has(s.songmid));
+  if (!picked.length) { toast('请先勾选要下载的歌曲', 'warn'); return; }
+  const ok = picked.filter((s) => !lockedForUi(s));
+  if (!ok.length) { toast('选中的都是付费内容，需在 QQ音乐购买后才能下载', 'warn'); return; }
+  createTasks(ok);
+  st.sel.clear();
+  syncBlockSelection(key);
+}
+
+/* ---------- 各板块的加载与渲染 ---------- */
+
+function feedCardHtml(card) {
+  const name = card.name || '';
+  if (card.kind === 'songlist' && card.songlist_id) {
+    return `<button class="chip" data-songlist-id="${esc(String(card.songlist_id))}" data-songlist-title="${esc(name)}">歌单 · ${esc(name)} ›</button>`;
+  }
+  if (card.kind === 'top' && card.top_id) {
+    return `<button class="chip" data-top-id="${esc(String(card.top_id))}" data-top-name="${esc(name)}">榜单 · ${esc(name)} ›</button>`;
+  }
+  if (card.album_mid) {
+    return `<button class="chip" data-album-mid="${esc(card.album_mid)}" data-album-name="${esc(name)}">专辑 · ${esc(name)} ›</button>`;
+  }
+  if (card.songid) {
+    return `<button class="chip" data-song-id="${esc(String(card.songid))}" data-song-name="${esc(name)}">歌曲 · ${esc(name)} ›</button>`;
+  }
+  return `<span class="chip muted-chip">${esc(name || '推荐')}</span>`;
+}
+
+async function loadFeedBlock(body, limit, st) {
+  const data = await api('/home/feed', { query: { songs: 1, limit, force: 1 } });
+  const groups = data.groups || [];
+  const all = [];
+  body.innerHTML = '';
+  groups.forEach((group, gi) => {
+    const songs = group.songs || [];
+    songs.forEach((s) => all.push(s));
+    const section = document.createElement('section');
+    section.className = 'block-group';
+    section.innerHTML = `<h3 class="block-group-title">${esc(group.title || `推荐 ${gi + 1}`)}</h3>
+      ${(group.cards || []).length ? '<div class="chip-row" data-role="feed-cards"></div>' : ''}
+      <div data-role="feed-songs"></div>`;
+    body.appendChild(section);
+    const chips = section.querySelector('[data-role="feed-cards"]');
+    if (chips) chips.innerHTML = (group.cards || []).map(feedCardHtml).join('');
+    const mount = section.querySelector('[data-role="feed-songs"]');
+    if (songs.length) renderBlockSongs(mount, songs, 'feed');
+    else if (!(group.cards || []).some((c) => c.kind === 'song')) mount.innerHTML = '<div class="empty">本组没有可直接下载的歌曲</div>';
+  });
+  st.songs = all;
+  st.count = all.length;
+  if (!groups.length) body.innerHTML = '<div class="empty">首页没有返回内容</div>';
+  else if (all.length) body.insertAdjacentHTML('beforeend', blockBulkHtml('feed'));
+  setBlockMeta('feed', `${groups.length} 个分组 · ${all.length} 首`);
+}
+
+async function loadChartBlock(body, limit, st) {
+  if (!st.chartTops) {
+    const data = await api('/chart/categories');
+    const items = [];
+    (data.groups || []).forEach((group) => {
+      const list = group.items || group.toplist || group.list || [];
+      list.forEach((it) => {
+        const topId = it.top_id || it.id || 0;
+        if (topId) items.push({ top_id: topId, name: it.name || it.title || `榜单 ${topId}` });
+      });
+    });
+    st.chartTops = items;
+  }
+  const tops = st.chartTops || [];
+  const tabs = $('#block-chart-tabs');
+  const active = Number(st.sub.top_id) || (tops[0] ? tops[0].top_id : 26);
+  st.sub.top_id = active;
+  if (tabs) {
+    tabs.innerHTML = tops.length
+      ? tops.map((t) => `<button class="chip${t.top_id === active ? ' active' : ''}" data-block-tab="chart" data-top-id="${esc(String(t.top_id))}">${esc(t.name)}</button>`).join('')
+      : '<span class="muted">没有拿到榜单分类</span>';
+  }
+  const data = await api('/chart/songs', { query: { top_id: active, limit } });
+  const songs = data.songs || [];
+  st.songs = songs;
+  st.count = songs.length;
+  body.innerHTML = '';
+  renderBlockSongs(body, songs, 'chart', '这个榜单暂时没有歌曲');
+  if (songs.length) body.insertAdjacentHTML('beforeend', blockBulkHtml('chart'));
+  setBlockMeta('chart', `${data.name || '榜单'} · ${data.period || ''} · ${songs.length} 首`);
+}
+
+async function loadAlbumBlock(body, limit, st) {
+  const areas = [['1', '华语'], ['2', '欧美'], ['3', '日韩'], ['6', '其他']];
+  const area = String(st.sub.area || '1');
+  st.sub.area = area;
+  const tabs = $('#block-newalbum-tabs');
+  if (tabs) {
+    tabs.innerHTML = areas
+      .map(([code, name]) => `<button class="chip${code === area ? ' active' : ''}" data-block-tab="newalbum" data-area="${code}">${esc(name)}</button>`)
+      .join('');
+  }
+  const data = await api('/album/new', { query: { area, limit } });
+  const items = data.albums || data.items || [];
+  st.count = items.length;
+  body.innerHTML = items.length
+    ? `<div class="card-grid mini">${items.map((album) => `
+        <button class="mini-card" data-album-mid="${esc(album.album_mid || '')}" data-album-name="${esc(album.name || '')}">
+          <img class="mini-cover" ${album.cover ? `src="${esc(album.cover)}"` : ''} alt="" loading="lazy" />
+          <span class="mini-name" title="${esc(album.name || '')}">${esc(album.name || '')}</span>
+          <span class="mini-sub">${esc(album.singer || '')}${album.release_time ? ` · ${esc(String(album.release_time).slice(0, 10))}` : ''}</span>
+        </button>`).join('')}</div><p class="hint">点专辑卡片可展开其中的歌曲，勾选后一起下载。</p>`
+    : '<div class="empty">这个区域暂时没有新专辑</div>';
+  setBlockMeta('newalbum', `${items.length} 张专辑`);
+}
+
+async function loadSingerBlock(body, limit, st) {
+  const data = await api('/singer/chart', { query: { limit } });
+  const items = data.items || [];
+  st.count = items.length;
+  st.songs = [];
+  body.innerHTML = items.length
+    ? `<ul class="singer-list">${items.map((singer) => `
+        <li class="singer-item">
+          <button class="singer-name" data-singer-mid="${esc(singer.singer_mid || '')}" data-singer-name="${esc(singer.name || '')}">
+            <span class="singer-name-text">${esc(singer.name || '未知歌手')}</span>
+            <span class="muted">${esc(singer.other_name || '')}${singer.concern_num ? ` · ${Number(singer.concern_num).toLocaleString()} 人关注` : ''}</span>
+          </button>
+          <div class="singer-ops">
+            <button class="btn btn-sm btn-ghost" data-singer-songs="${esc(singer.singer_mid || '')}" data-singer-name="${esc(singer.name || '')}">热门歌曲</button>
+            <button class="btn btn-sm btn-ghost" data-singer-albums="${esc(singer.singer_mid || '')}" data-singer-name="${esc(singer.name || '')}">专辑</button>
+          </div>
+        </li>`).join('')}</ul><p class="hint">点「热门歌曲」展开歌曲列表，可勾选下载。</p>`
+    : '<div class="empty">没有拿到歌手榜</div>';
+  setBlockMeta('singer', `${items.length} 位歌手`);
+}
+
+async function loadMvBlock(body, limit, st) {
+  const data = await api('/mv/list', { query: { limit } });
+  const items = data.items || [];
+  st.count = items.length;
+  body.innerHTML = items.length
+    ? `<div class="card-grid mini">${items.map((mv) => `
+        <button class="mini-card" data-mv-vid="${esc(mv.vid || '')}" data-mv-name="${esc(mv.name || '')}">
+          <img class="mini-cover" ${mv.cover ? `src="${esc(mv.cover)}"` : ''} alt="" loading="lazy" />
+          <span class="mini-name" title="${esc(mv.name || '')}">${esc(mv.name || '')}</span>
+          <span class="mini-sub">${esc(mv.singer || '')}${mv.playcnt ? ` · ${Number(mv.playcnt).toLocaleString()} 次播放` : ''}</span>
+        </button>`).join('')}</div><p class="hint">点卡片在弹出的播放器里看 MV（QQ音乐对未登录用户可能不给播放地址）。</p>`
+    : '<div class="empty">没有拿到 MV 列表</div>';
+  setBlockMeta('mv', `${items.length} 支 MV`);
+}
+
+async function loadHotkeyBlock(body, limit, st) {
+  const data = await api('/search/hotkey', { query: { limit } });
+  const items = data.items || [];
+  st.count = items.length;
+  body.innerHTML = items.length
+    ? `<div class="chip-row">${items.map((it, i) => `
+        <button class="chip" data-hot-key="${esc(it.query || '')}"><b>${i + 1}</b> ${esc(it.query || '')}</button>`).join('')}</div>
+       <p class="hint">点热搜词直接搜索（搜到的歌曲可以勾选下载）。</p>`
+    : '<div class="empty">没有拿到热搜词</div>';
+  setBlockMeta('hotkey', `${items.length} 个热搜词`);
+}
+
+async function loadDailyBlock(body, limit, st) {
+  const data = await api('/daily/songs', { query: { limit } });
+  const songs = data.songs || [];
+  st.songs = songs;
+  st.count = songs.length;
+  body.innerHTML = '';
+  renderBlockSongs(body, songs, 'daily', '今天还没有推荐歌曲');
+  if (songs.length) body.insertAdjacentHTML('beforeend', blockBulkHtml('daily'));
+  const title = (data.info && data.info.title) || '每日 30 首';
+  setBlockMeta('daily', `${title} · ${songs.length} 首`);
+}
+
+/* ---------- 面板内的下钻：专辑 / 歌手 / MV / 热搜 / 歌曲详情 ---------- */
+
+async function expandBlockSongs(key, mountId, title, loader) {
+  const mount = $(`#${mountId}`);
+  if (!mount) return;
+  mount.classList.remove('hidden');
+  mount.innerHTML = `<div class="block-expand-head"><b>${esc(title)}</b>
+    <button class="btn btn-sm btn-ghost" data-block-expand-close="${mountId}">收起</button></div>
+    <div id="${mountId}-songs"><div class="empty">加载中…</div></div>`;
+  const holder = $(`#${mountId}-songs`);
+  mount.scrollIntoView({ block: 'nearest' });
+  try {
+    const songs = await loader();
+    extraState(key).songs = songs || [];
+    renderBlockSongs(holder, songs || [], key, '这里没有可下载的歌曲');
+    if ((songs || []).length) holder.insertAdjacentHTML('beforeend', blockBulkHtml(key));
+    syncBlockSelection(key);
+  } catch (err) {
+    holder.innerHTML = `<div class="empty">${esc((err && err.message) || '加载失败')}</div>`;
+    handleError(err, { silent: true });
+  }
+}
+
+function expandAlbumInline(mid, name) {
+  if (!mid) return;
+  const key = `album:${mid}`;
+  expandBlockSongs(key, 'block-newalbum-expand', name || '专辑', async () => {
+    const data = await api('/album/songs', { query: { album_mid: mid, limit: extraHomeLimit('newalbum') } });
+    if (data.album && data.album.name) {
+      const head = $('.block-expand-head b');
+      if (head) head.textContent = `${data.album.name} · ${data.album.singer || ''}`;
+    }
+    return data.songs || [];
+  });
+}
+
+function expandSingerInline(mid, name, kind = 'songs') {
+  if (!mid) return;
+  const key = `${kind}:${mid}`;
+  const label = kind === 'songs' ? `${name || '歌手'} · 热门歌曲` : `${name || '歌手'} · 专辑`;
+  expandBlockSongs(key, 'block-singer-expand', label, async () => {
+    if (kind === 'songs') {
+      const data = await api('/singer/songs', { query: { singer_mid: mid, limit: extraHomeLimit('singer') } });
+      return data.items || [];
+    }
+    const data = await api('/singer/albums', { query: { singer_mid: mid, limit: extraHomeLimit('singer') } });
+    const items = data.items || [];
+    if (!items.length) throw new Error('这位歌手没有公开专辑');
+    return items;
+  });
+}
+
+/** 专辑分页：新碟上架里点专辑卡片 → 展开歌曲；歌手里点「专辑」→ 展开专辑而不是歌曲 */
+async function expandSingerAlbums(mid, name) {
+  const key = `singer-albums:${mid}`;
+  const mount = $('#block-singer-expand');
+  if (!mount) return;
+  mount.classList.remove('hidden');
+  mount.innerHTML = `<div class="block-expand-head"><b>${esc(name || '歌手')} · 专辑</b>
+    <button class="btn btn-sm btn-ghost" data-block-expand-close="block-singer-expand">收起</button></div>
+    <div id="block-singer-expand-songs"><div class="empty">加载中…</div></div>`;
+  const holder = $('#block-singer-expand-songs');
+  try {
+    const data = await api('/singer/albums', { query: { singer_mid: mid, limit: extraHomeLimit('singer') } });
+    const items = data.items || [];
+    holder.innerHTML = items.length
+      ? `<div class="chip-row">${items.map((album) => `<button class="chip" data-album-mid="${esc(album.album_mid || '')}" data-album-name="${esc(album.name || '')}">${esc(album.name || '专辑')}${album.release_time ? ` · ${esc(String(album.release_time).slice(0, 10))}` : ''}</button>`).join('')}</div>`
+      : '<div class="empty">没有公开专辑</div>';
+  } catch (err) {
+    holder.innerHTML = `<div class="empty">${esc((err && err.message) || '加载失败')}</div>`;
+    handleError(err, { silent: true });
+  }
+}
+
+async function openMvModal(vid, name) {
+  if (!vid) return;
+  $('#mv-title').textContent = name || 'MV';
+  $('#mv-hint').textContent = '正在获取播放地址…';
+  const video = $('#mv-video');
+  video.removeAttribute('src');
+  video.load();
+  showModal('modal-mv');
+  try {
+    const data = await api('/mv/url', { query: { vid } });
+    const url = (data.urls || [])[0] || data.m3u8 || '';
+    if (!url) {
+      $('#mv-hint').textContent = '没拿到播放地址：QQ音乐对未登录用户不返回 MV 直链，先到「账号」里登录再试。';
+      return;
+    }
+    video.src = url;
+    $('#mv-hint').textContent = '若浏览器无法直接播放（QQ 的 MV 直链有时禁跨域），可右键视频选「另存为」，或用播放器右下角 ⋮ 菜单里的「下载」。';
+    video.play().catch(() => {});
+  } catch (err) {
+    $('#mv-hint').textContent = '播放地址获取失败，可能需要在「账号」里登录后再试。';
+    handleError(err, { silent: true });
+  }
+}
+
+function jumpToSearch(keyword) {
+  const input = $('#search-input');
+  const type = $('#search-type');
+  if (!input) return;
+  switchView('search');
+  if (type) type.value = 'song';
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+  setter.call(input, String(keyword || ''));
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  loadSearch({ reset: true });
+}
+
+/** 歌曲详情弹窗：基础信息 + 收藏/评论/标签 + 相似歌曲 */
+async function openSongDetail(song) {
+  const mid = (song && song.songmid) || '';
+  const sid = Number((song && song.songid) || 0);
+  if (!mid && !sid) return;
+  $('#song-detail-title').textContent = '歌曲详情';
+  $('#song-detail-name').textContent = (song && song.name) || '加载中…';
+  $('#song-detail-sub').textContent = (song && song.singer) || '';
+  $('#song-detail-cover').innerHTML = '';
+  $('#song-detail-facts').innerHTML = '';
+  $('#song-detail-similar-count').textContent = '';
+  $('#song-detail-similar').innerHTML = '<li class="empty">加载中…</li>';
+  const similarState = extraState('similar');
+  similarState.songs = [];
+  similarState.sel.clear();
+  showModal('modal-song');
+  let detail = song;
+  try {
+    if (!detail && sid) {
+      const data = await api('/song/byid', { query: { songid: sid } });
+      detail = data.song || null;
+    }
+    if (detail) {
+      $('#song-detail-name').textContent = detail.name || '未知歌曲';
+      $('#song-detail-sub').textContent = [detail.singer, detail.album].filter(Boolean).join(' · ') + (detail.interval ? ` · ${fmtDuration(detail.interval)}` : '');
+      const cover = coverUrl(detail.album_pmid);
+      $('#song-detail-cover').innerHTML = cover ? `<img src="${esc(cover)}" alt="" />` : '';
+      const preview = $('#song-detail-preview');
+      const download = $('#song-detail-download');
+      const locked = lockedForUi(detail);
+      preview.disabled = locked;
+      download.disabled = locked;
+      preview.onclick = () => openPlayer(detail.songmid, [detail]);
+      download.onclick = () => createTasks([detail]);
+      $('#song-detail-title').textContent = detail.name || '歌曲详情';
+    }
+    const targetMid = (detail && detail.songmid) || mid;
+    const targetId = Number((detail && detail.songid) || sid);
+    const facts = [];
+    const [stats, similar] = await Promise.all([
+      targetMid ? api('/song/stats', { query: { songmid: targetMid } }).catch(() => null) : Promise.resolve(null),
+      (targetMid || targetId) ? api('/song/similar', { query: { songmid: targetMid, songid: targetId || undefined, limit: extraHomeLimit('similar') } }).catch(() => null) : Promise.resolve(null),
+    ]);
+    if (stats) {
+      if (stats.fav_text) facts.push(`<span class="fact">❤ 收藏 ${esc(stats.fav_text)}</span>`);
+      if (stats.comments) facts.push(`<span class="fact">💬 评论 ${Number(stats.comments).toLocaleString()}</span>`);
+      (stats.labels || []).slice(0, 8).forEach((label) => facts.push(`<span class="fact fact-tag">${esc(String(label))}</span>`));
+    }
+    $('#song-detail-facts').innerHTML = facts.join('');
+    const songs = (similar && similar.songs) || [];
+    similarState.songs = songs;
+    $('#song-detail-similar-count').textContent = songs.length ? `${songs.length} 首` : '';
+    renderBlockSongs($('#song-detail-similar'), songs, 'similar', '没有找到相似歌曲');
+    hydrateCovers($('#modal-song'));
+  } catch (err) {
+    $('#song-detail-facts').innerHTML = `<span class="fact">详情加载失败：${esc((err && err.message) || '')}</span>`;
+    handleError(err, { silent: true });
+  }
+}
+
+/* ---------- 面板内的事件（全局委托，动态生成的列表也能用） ---------- */
+
+function onExtraHomeClick(ev) {
+  const inPanel = (sel) => ev.target.closest(`#home-panels-extra ${sel}`);
+  const close = ev.target.closest('[data-close]');
+  if (close) { hideModal(close.dataset.close); return; }
+  const expandClose = ev.target.closest('[data-block-expand-close]');
+  if (expandClose) { const el = $(`#${expandClose.dataset.blockExpandClose}`); if (el) { el.classList.add('hidden'); el.innerHTML = ''; } return; }
+  const reload = inPanel('[data-block-reload]');
+  if (reload) { loadExtraBlock(reload.dataset.blockReload, true); return; }
+  const tab = inPanel('[data-block-tab]');
+  if (tab) {
+    const key = tab.dataset.blockTab;
+    const st = extraState(key);
+    if (tab.dataset.topId) st.sub.top_id = Number(tab.dataset.topId);
+    if (tab.dataset.area) st.sub.area = tab.dataset.area;
+    st.sel.clear();
+    loadExtraBlock(key, true);
+    return;
+  }
+  const mv = inPanel('[data-mv-vid]');
+  if (mv) { openMvModal(mv.dataset.mvVid, mv.dataset.mvName); return; }
+  const hot = inPanel('[data-hot-key]');
+  if (hot) { jumpToSearch(hot.dataset.hotKey); return; }
+  const sSongs = inPanel('[data-singer-songs]');
+  if (sSongs) { expandSingerInline(sSongs.dataset.singerSongs, sSongs.dataset.singerName, 'songs'); return; }
+  const sAlbums = inPanel('[data-singer-albums]');
+  if (sAlbums) { expandSingerAlbums(sAlbums.dataset.singerAlbums, sAlbums.dataset.singerName); return; }
+  const singer = inPanel('[data-singer-mid]');
+  if (singer) { expandSingerInline(singer.dataset.singerMid, singer.dataset.singerName, 'songs'); return; }
+  const album = inPanel('[data-album-mid]');
+  if (album) { expandAlbumInline(album.dataset.albumMid, album.dataset.albumName); return; }
+  const songlist = inPanel('[data-songlist-id]');
+  if (songlist) { openSonglistDetail(songlist.dataset.songlistId, songlist.dataset.songlistTitle || ''); return; }
+  const top = inPanel('[data-top-id]');
+  if (top) {
+    extraState('chart').sub.top_id = Number(top.dataset.topId) || 0;
+    extraState('chart').sel.clear();
+    openExtraBlock('chart');
+    return;
+  }
+  const byId = inPanel('[data-song-id]');
+  if (byId) { openSongDetail({ songid: Number(byId.dataset.songId) || 0, name: byId.dataset.songName || '' }); return; }
+  const detail = ev.target.closest('[data-role="detail"]');
+  if (detail) {
+    openSongDetail({
+      songmid: detail.dataset.songmid || '',
+      songid: Number(detail.dataset.songid) || 0,
+      name: detail.dataset.songName || '', singer: detail.dataset.songSinger || '',
+    });
+    return;
+  }
+  const bulkDownload = inPanel('[data-role="block-download"]');
+  if (bulkDownload) { downloadBlockSelection(bulkDownload.dataset.block); return; }
+  const invert = inPanel('[data-role="block-invert"]');
+  if (invert) {
+    const key = invert.dataset.block;
+    const st = extraState(key);
+    visibleSongs(st.songs || []).forEach((s) => { if (st.sel.has(s.songmid)) st.sel.delete(s.songmid); else st.sel.add(s.songmid); });
+    syncBlockSelection(key);
+    return;
+  }
+  const row = inPanel('.song-item');
+  if (row && !ev.target.closest('button, label, input')) {
+    const key = row.closest('ul.song-list').dataset.block;
+    toggleBlockSong(key, row.dataset.songmid, !extraState(key).sel.has(row.dataset.songmid));
+  }
+}
+
+function onExtraHomeChange(ev) {
+  const root = document.querySelector('#home-panels-extra');
+  if (!root || !root.contains(ev.target)) return;
+  const box = ev.target.closest('input[data-role="pick"]');
+  if (box) {
+    const ul = box.closest('ul.song-list');
+    if (ul) toggleBlockSong(ul.dataset.block, box.dataset.songmid, box.checked);
+    return;
+  }
+  const all = ev.target.closest('input[data-role="block-all"]');
+  if (all) {
+    const key = all.dataset.block;
+    const st = extraState(key);
+    if (all.checked) visibleSongs(st.songs || []).forEach((s) => st.sel.add(s.songmid));
+    else st.sel.clear();
+    syncBlockSelection(key);
+  }
+}
+
+function registerExtraHomeEvents() {
+  if (registerExtraHomeEvents.done) return;
+  registerExtraHomeEvents.done = true;
+  document.addEventListener('click', onExtraHomeClick);
+  document.addEventListener('change', onExtraHomeChange);
+}
+
+/* 启动：DOM 就绪后把新板块挂上（设置还没拉到时先按默认值显示） */
+(function initExtraHome() {
+  const run = () => {
+    try {
+      ensureExtraHomeDom();
+      registerExtraHomeEvents();
+      syncExtraHomeEntries();
+    } catch (err) {
+      // 首页扩展初始化失败不影响原有功能
+      void err;
+    }
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
+  else run();
+})();
 
 /* ---------------- 搜索 ---------------- */
 /* 从输入里识别歌单 ID：支持 y.qq.com 歌单链接、id/disstid 参数、纯数字 ID */
@@ -2039,6 +2704,14 @@ function applySettings() {
   setHomeInput('#setting-home-newsongs', 'newsongs');
   setHomeInput('#setting-home-guess', 'guess');
   setHomeInput('#setting-home-radar', 'radar');
+  // 新增板块：上限默认 30、默认显示（关掉就整块隐藏）
+  EXTRA_HOME_KEYS.forEach((key) => {
+    const input = homeMaxInput(key);
+    if (input) input.value = extraHomeLimit(key);
+    const box = $(`#setting-home-${key}-show`);
+    if (box) box.checked = extraHomeShown(key);
+  });
+  syncExtraHomeEntries();
   applyPushSettings();
 }
 
@@ -2133,12 +2806,31 @@ async function saveSettings() {
     }
     payload[key] = Math.round(value);
   }
+  // 新增板块：每块上限 1 ~ 100 + 显示开关（关闭后首页入口与面板都隐藏）
+  const blockMaxHigh = 100;
+  for (const key of EXTRA_HOME_KEYS) {
+    const input = homeMaxInput(key);
+    if (!input) continue;
+    const value = Number(input.value);
+    if (!Number.isFinite(value) || value < 1 || value > blockMaxHigh) {
+      toast(`${EXTRA_HOME_LABELS[key]}数量需在 1 ~ ${blockMaxHigh} 之间`, 'warn');
+      return;
+    }
+    payload[`home_${key}_max`] = Math.round(value);
+    const box = $(`#setting-home-${key}-show`);
+    if (box) payload[`home_${key}_show`] = !!box.checked;
+  }
   try {
     const data = await withLoading(() => api('/settings', { method: 'POST', body: payload }));
     state.settings = data.settings || state.settings;
     state.home.loadedAt = 0;   // 数量变了 → 下次进首页按新上限重新取
+    state.home.extra = {};     // 新增板块的缓存一并清掉（上限可能变了）
     applyTheme();              // 主题立即生效
     applyPushSettings();       // 推送开关回填（后端可能做了归一化）
+    // 首页入口的显隐/计数跟着设置走：关掉的板块入口立刻消失，不用刷新页面
+    if (state.home.panel && !extraHomeShown(state.home.panel)) state.home.panel = '';
+    applyHomePanel();
+    syncExtraHomeEntries();
     toast('设置已保存', 'success');
   } catch (err) {
     handleError(err);
@@ -2403,7 +3095,11 @@ function bindEvents() {
   // 首页四宫格：点入口进对应列表，点「← 返回」回到入口
   on('#home-hub', 'click', (ev) => {
     const entry = ev.target.closest('.home-entry');
-    if (entry) openHomePanel(entry.dataset.panel);
+    if (!entry) return;
+    const key = entry.dataset.panel;
+    if (key === 'fav') { switchView('fav'); return; }              // 收藏是独立视图，不是首页面板
+    if (BLOCK_PANEL_KEYS.indexOf(key) >= 0) { openExtraBlock(key); return; }
+    openHomePanel(key);
   });
   on('#view-home', 'click', (ev) => {
     if (ev.target.closest('[data-home-back]')) openHomePanel('');

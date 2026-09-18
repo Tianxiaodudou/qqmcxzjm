@@ -154,6 +154,10 @@
             </div>
             <ul class="song-list" id="recommend-radar"></ul>
           </div>
+
+          <!-- 新增板块（首页信息流 / 排行榜 / 新碟上架 / 热门歌手 / MV 精选 / 热搜榜 / 每日 30 首）
+               的面板与入口卡片都由 app.js 按设置动态生成，这里只留挂载点 -->
+          <div id="home-panels-extra"></div>
         </section>
 
         <!-- 搜索 -->
@@ -404,8 +408,90 @@
             </div>
           </details>
 
+          <details class="settings-card">
+            <summary class="card-head"><h2>首页板块</h2><span class="card-hint">显示开关 / 每块最多显示多少</span></summary>
+            <p class="hint">首页「为你推荐」里除原有四块外，还有下面这些板块（默认每块 30 条）。取消勾选即隐藏该板块的入口卡片与列表；数量只决定「最多显示多少」，服务器给多少就显示多少。</p>
+            <div class="field">
+              <label for="setting-home-feed-max">首页信息流</label>
+              <div class="inline">
+                <label class="check"><input type="checkbox" id="setting-home-feed-show" /> 显示</label>
+                <input type="number" id="setting-home-feed-max" min="1" max="100" step="1" /> <span class="muted">条</span>
+              </div>
+            </div>
+            <div class="field">
+              <label for="setting-home-chart-max">排行榜</label>
+              <div class="inline">
+                <label class="check"><input type="checkbox" id="setting-home-chart-show" /> 显示</label>
+                <input type="number" id="setting-home-chart-max" min="1" max="100" step="1" /> <span class="muted">首</span>
+              </div>
+              <p class="hint">面板里可切换热歌榜 / 新歌榜 / 飙升榜 / 抖音榜等。</p>
+            </div>
+            <div class="field">
+              <label for="setting-home-newalbum-max">新碟上架</label>
+              <div class="inline">
+                <label class="check"><input type="checkbox" id="setting-home-newalbum-show" /> 显示</label>
+                <input type="number" id="setting-home-newalbum-max" min="1" max="100" step="1" /> <span class="muted">张</span>
+              </div>
+              <p class="hint">分华语 / 欧美 / 日本 / 韩国，点专辑即可看整张歌曲并批量下载。</p>
+            </div>
+            <div class="field">
+              <label for="setting-home-singer-max">热门歌手</label>
+              <div class="inline">
+                <label class="check"><input type="checkbox" id="setting-home-singer-show" /> 显示</label>
+                <input type="number" id="setting-home-singer-max" min="1" max="100" step="1" /> <span class="muted">位</span>
+              </div>
+              <p class="hint">点歌手进入其热门歌曲列表。</p>
+            </div>
+            <div class="field">
+              <label for="setting-home-mv-max">MV 精选</label>
+              <div class="inline">
+                <label class="check"><input type="checkbox" id="setting-home-mv-show" /> 显示</label>
+                <input type="number" id="setting-home-mv-max" min="1" max="100" step="1" /> <span class="muted">支</span>
+              </div>
+              <p class="hint">MV 只能在线播放（点卡片在浏览器新标签打开），不参与下载。</p>
+            </div>
+            <div class="field">
+              <label for="setting-home-hotkey-max">热搜榜</label>
+              <div class="inline">
+                <label class="check"><input type="checkbox" id="setting-home-hotkey-show" /> 显示</label>
+                <input type="number" id="setting-home-hotkey-max" min="1" max="100" step="1" /> <span class="muted">个</span>
+              </div>
+              <p class="hint">点热词直接跳到搜索页搜这首歌。</p>
+            </div>
+            <div class="field">
+              <label for="setting-home-daily-max">每日 30 首</label>
+              <div class="inline">
+                <label class="check"><input type="checkbox" id="setting-home-daily-show" /> 显示</label>
+                <input type="number" id="setting-home-daily-max" min="1" max="100" step="1" /> <span class="muted">首</span>
+              </div>
+            </div>
+            <div class="field">
+              <label for="setting-home-similar-max">相似歌曲</label>
+              <div class="inline">
+                <label class="check"><input type="checkbox" id="setting-home-similar-show" /> 显示</label>
+                <input type="number" id="setting-home-similar-max" min="1" max="100" step="1" /> <span class="muted">首</span>
+              </div>
+              <p class="hint">在歌曲行的「详情」里展示：以这首歌为种子，推荐相似歌曲，可勾选下载。</p>
+            </div>
+            <div class="field">
+              <label for="setting-home-fav-max">我的收藏</label>
+              <div class="inline">
+                <label class="check"><input type="checkbox" id="setting-home-fav-show" /> 显示</label>
+                <input type="number" id="setting-home-fav-max" min="1" max="100" step="1" /> <span class="muted">首</span>
+              </div>
+              <p class="hint">首页入口直接进「收藏」页；数量为该页默认展示条数。</p>
+            </div>
+            <div class="field">
+              <label>歌曲数据（收藏数 / 评论数 / 榜单标签）</label>
+              <div class="inline">
+                <label class="check"><input type="checkbox" id="setting-song-stats-show" /> 在歌曲「详情」里显示</label>
+              </div>
+              <p class="hint">进入歌曲详情时额外拉 2~3 个接口（收藏数、评论数、榜单标签），不需要可关掉。</p>
+            </div>
+          </details>
+
           <div class="settings-save">
-            <span class="muted">下载 / 界面 / 消息推送的全部设置都在这里一次性保存</span>
+            <span class="muted">下载 / 界面 / 首页板块 / 消息推送的全部设置都在这里一次性保存</span>
             <button class="btn btn-primary" id="btn-save-settings">保存设置</button>
           </div>
         </section>
@@ -528,6 +614,46 @@
           <button class="btn btn-primary" id="btn-copy-wechat">复制微信号</button>
         </div>
         <p class="hint">在微信里搜索这个微信号即可添加。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 歌曲详情弹窗：基础信息 + 收藏/评论/榜单标签（按需拉取）+ 相似歌曲 -->
+  <div class="modal hidden" id="modal-song">
+    <div class="modal-card modal-wide">
+      <header class="modal-head">
+        <h3 id="song-detail-title">歌曲详情</h3>
+        <button class="icon-btn" data-close="modal-song" title="关闭">✕</button>
+      </header>
+      <div class="modal-body">
+        <div class="song-detail-head">
+          <div class="detail-cover" id="song-detail-cover"></div>
+          <div class="detail-meta">
+            <div class="detail-name" id="song-detail-name">加载中…</div>
+            <div class="detail-sub" id="song-detail-sub"></div>
+            <div class="detail-facts" id="song-detail-facts"></div>
+            <div class="detail-ops">
+              <button class="btn btn-ghost" id="song-detail-preview">试听</button>
+              <button class="btn btn-primary" id="song-detail-download">下载</button>
+            </div>
+          </div>
+        </div>
+        <h4 class="block-title">相似歌曲 <span class="muted" id="song-detail-similar-count"></span></h4>
+        <ul class="song-list" id="song-detail-similar"></ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- MV 播放弹窗：拿直链后用原生 video 播放（QQ音乐 MV 直链是 mp4） -->
+  <div class="modal hidden" id="modal-mv">
+    <div class="modal-card modal-wide">
+      <header class="modal-head">
+        <h3 id="mv-title">MV</h3>
+        <button class="icon-btn" data-close="modal-mv" title="关闭">✕</button>
+      </header>
+      <div class="modal-body">
+        <video class="mv-video" id="mv-video" controls playsinline preload="none"></video>
+        <p class="hint" id="mv-hint"></p>
       </div>
     </div>
   </div>

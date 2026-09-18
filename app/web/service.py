@@ -18,6 +18,7 @@ from qqmusic_api.modules.search import SearchType
 from qqmusic_api.modules.song import EncryptedSongFileType, SongFileInfo, SongFileType
 
 from . import env, errors, security, store
+from .blocks import BlocksMixin
 
 logger = logging.getLogger("qqmusic.service")
 
@@ -46,7 +47,7 @@ def clean_text(value: Any) -> str:
     return text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"').strip()
 
 
-class QQService:
+class QQService(BlocksMixin):
     """唯一的 SDK 客户端持有者，负责登录态与凭证刷新。"""
 
     def __init__(self) -> None:
