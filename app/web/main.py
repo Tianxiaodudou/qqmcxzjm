@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import env, errors, security
@@ -136,9 +136,45 @@ for _p in _API_PREFIXES:
 _UI_DIR = env.UI_DIR if env.UI_DIR.exists() else Path(__file__).resolve().parent.parent / "ui"
 
 
+class _VersionAwareStaticFiles(StaticFiles):
+    """静态资源缓存策略（v1.3.4）。
+
+    飞牛网关透传静态文件时不带 Cache-Control，浏览器会按 Last-Modified 启发式缓存
+    style.css / app.js；升级后不手动强刷就一直吃旧界面，表现为「新版本没变化」。
+    这里显式声明：带 ?v=<版本> 的 URL 可以长期缓存，其余每次都要回源校验。
+    """
+
+    async def get_response(self, path: str, scope):  # type: ignore[override]
+        response = await super().get_response(path, scope)
+        query = (scope.get("query_string") or b"").decode("latin-1")
+        if "v=" in query:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return response
+
+
+_INDEX_HTML = _UI_DIR / "index.html"
+_ASSET_STAMP = f"?v={env.APP_VERSION}"
+
+
+def _render_index() -> str:
+    """返回注入了资源版本号的 index.html。
+
+    资源 URL 带版本号后，升级必然取到新 css/js，不再依赖用户手动强刷。
+    """
+    html = _INDEX_HTML.read_text(encoding="utf-8")
+    for asset in ("static/style.css", "static/app.js"):
+        html = html.replace(f'"{asset}"', f'"{asset}{_ASSET_STAMP}"')
+    return html
+
+
 async def index():
-    """返回前端入口页面。"""
-    return FileResponse(_UI_DIR / "index.html")
+    """返回前端入口页面（禁缓存，并让 css/js 带上版本号）。"""
+    return HTMLResponse(
+        _render_index(),
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
 
 
 async def favicon():
@@ -156,7 +192,7 @@ for _prefix in _prefixes:
     _suffix = _prefix.strip("/").replace("/", "-") or "root"
     app.mount(
         f"{_prefix}/static",
-        StaticFiles(directory=str(_UI_DIR)),
+        _VersionAwareStaticFiles(directory=str(_UI_DIR)),
         name=f"ui-static-{_suffix}",
     )
     app.add_api_route(

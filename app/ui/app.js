@@ -3283,8 +3283,33 @@ async function init() {
     const health = await api('/health');
     const badge = document.getElementById('app-version');
     if (badge && health && health.version) badge.textContent = health.version;
+    if (health && health.version) runningVersion = String(health.version);
   } catch (err) { /* 忽略 */ }
 }
+
+/* ---------------- 版本哨兵（v1.3.4）----------------
+   应用升级后，浏览器可能仍缓存着旧的 index.html / app.js（表现为「升级了但界面没变」）。
+   这里定期问一次后端版本：发现与当前页面加载时的版本不同，就自动刷新一次。
+   仅对「窗口一直开着」的场景生效，正常刷新由 index.html 的资源版本号保证。 */
+const RELOAD_FOR_KEY = 'qqmd.reloadedFor';
+let runningVersion = '';
+
+async function watchVersion() {
+  try {
+    const health = await api('/health');
+    const v = health && health.version ? String(health.version) : '';
+    if (!v) return;
+    if (!runningVersion) { runningVersion = v; return; }
+    if (v !== runningVersion && window.sessionStorage.getItem(RELOAD_FOR_KEY) !== v) {
+      window.sessionStorage.setItem(RELOAD_FOR_KEY, v);
+      window.location.reload();
+    }
+  } catch (err) { /* 忽略：网络异常时等待下一轮 */ }
+}
+
+window.setInterval(watchVersion, 5 * 60 * 1000);
+window.addEventListener('focus', () => { watchVersion(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) watchVersion(); });
 
 init();
 
