@@ -275,7 +275,7 @@
 
         <!-- 设置 -->
         <section class="view" id="view-settings">
-          <details class="settings-card" open>
+          <details class="settings-card">
             <summary class="card-head"><h2>下载设置</h2><span class="card-hint">音质 / 元数据 / 目录 / 列表上限</span></summary>
             <div class="field">
               <label>音质</label>
@@ -329,30 +329,9 @@
               </div>
               <p class="hint">点「全选 / 反选 / 下载选中」时，最多按整张列表补全到这么多首后生效（默认 500，最大 20000）。列表比这个还大时只处理前若干首，避免动辄几千首的列表卡住页面。</p>
             </div>
-            <div class="field">
-              <label>首页推荐数量上限（最多显示多少）</label>
-              <div class="inline">
-                <input type="number" id="setting-home-songlists" min="1" max="60" step="1" /> <span class="muted">个推荐歌单</span>
-                <input type="number" id="setting-home-newsongs" min="1" max="100" step="1" /> <span class="muted">首新歌</span>
-              </div>
-              <div class="inline">
-                <input type="number" id="setting-home-guess" min="1" max="60" step="1" /> <span class="muted">首猜你喜欢</span>
-                <input type="number" id="setting-home-radar" min="1" max="100" step="1" /> <span class="muted">首每日推荐</span>
-              </div>
-              <p class="hint">首页四个入口各自最多显示多少（默认 20 个歌单 / 30 首新歌 / 30 首猜你喜欢 / 50 首每日推荐）。这里只设上限，下限由 QQ音乐服务器决定：服务器只推了 10 首就显示 10 首，填得再大也不会凭空变多。</p>
-            </div>
-            <div class="field">
-              <label>关于</label>
-              <p class="hint">
-                开发者：<a class="link" data-about="developer" href="https://github.com/Tianxiaodudou?tab=repositories" target="_blank" rel="noopener noreferrer">Tianxiaodudou</a>
-                （点击打开 GitHub 主页）
-                ｜ 发布者：<a class="link" data-about="publisher" href="#" role="button">A鱼儿</a>
-                （点击查看微信号 <span class="mono" data-about="publisher-wechat"></span>，可一键复制）
-              </p>
-            </div>
           </details>
 
-          <details class="settings-card" open>
+          <details class="settings-card">
             <summary class="card-head"><h2>界面与显示</h2><span class="card-hint">主题配色 / 付费内容</span></summary>
             <div class="field">
               <label for="setting-theme">主题</label>
@@ -377,7 +356,7 @@
             </div>
           </details>
 
-          <details class="settings-card" open>
+          <details class="settings-card">
             <summary class="card-head"><h2>消息推送</h2><span class="card-hint">飞牛统一推送服务（可选）</span></summary>
             <div class="field">
               <label for="setting-push-base">推送服务地址</label>
@@ -418,6 +397,18 @@
           <details class="settings-card">
             <summary class="card-head"><h2>首页板块</h2><span class="card-hint">显示开关 / 每块最多显示多少</span></summary>
             <p class="hint">首页「为你推荐」里除原有四块外，还有下面这些板块（默认每块 30 条）。取消勾选即隐藏该板块的入口卡片与列表；数量只决定「最多显示多少」，服务器给多少就显示多少。</p>
+            <div class="field">
+              <label>原有四块推荐数量上限</label>
+              <div class="inline">
+                <input type="number" id="setting-home-songlists" min="1" max="60" step="1" /> <span class="muted">个推荐歌单</span>
+                <input type="number" id="setting-home-newsongs" min="1" max="100" step="1" /> <span class="muted">首新歌</span>
+              </div>
+              <div class="inline">
+                <input type="number" id="setting-home-guess" min="1" max="60" step="1" /> <span class="muted">首猜你喜欢</span>
+                <input type="number" id="setting-home-radar" min="1" max="100" step="1" /> <span class="muted">首每日推荐</span>
+              </div>
+              <p class="hint">首页四个入口各自最多显示多少（默认 20 个歌单 / 30 首新歌 / 30 首猜你喜欢 / 50 首每日推荐）。这里只设上限，下限由 QQ音乐服务器决定：服务器只推了 10 首就显示 10 首，填得再大也不会凭空变多。</p>
+            </div>
             <div class="field">
               <label for="setting-home-feed-max">首页信息流</label>
               <div class="inline">
@@ -488,6 +479,16 @@
               <p class="hint">进入歌曲详情时额外拉 2~3 个接口（收藏数、评论数、榜单标签），不需要可关掉。</p>
             </div>
           </details>
+
+          <div class="settings-about">
+            <div class="about-head"><h2>关于</h2></div>
+            <p class="hint">
+              开发者：<a class="link" data-about="developer" href="https://github.com/Tianxiaodudou?tab=repositories" target="_blank" rel="noopener noreferrer">Tianxiaodudou</a>
+              （点击打开 GitHub 主页）
+              ｜ 发布者：<a class="link" data-about="publisher" href="#" role="button">A鱼儿</a>
+              （点击查看微信号 <span class="mono" data-about="publisher-wechat"></span>，可一键复制）
+            </p>
+          </div>
 
           <div class="settings-save">
             <span class="muted">下载 / 界面 / 首页板块 / 消息推送的全部设置都在这里一次性保存</span>

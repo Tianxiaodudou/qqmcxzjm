@@ -449,7 +449,9 @@ input:focus, select:focus { border-color: var(--primary); }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 18px 20px;
-  max-width: 620px;
+  width: 100%;
+  /* 撑满内容区（窗口很宽时不再被 620px 卡窄），真正的小屏由下方媒体查询单列兜底 */
+  max-width: 100%;
 }
 
 .settings-card h2 { font-size: 15px; margin: 0 0 14px; }
@@ -487,7 +489,7 @@ input:focus, select:focus { border-color: var(--primary); }
 }
 .push-row .push-dedup input { width: 76px; }
 
-/* 已授权文件夹：可逐个移除，移除的进「已移除」可恢复 */
+/* 已授权文件夹：可逐个移除（移除前二次确认，移除后不再提供恢复） */
 .dir-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .dir-row {
   display: flex; align-items: center; gap: 8px;
@@ -499,9 +501,7 @@ input:focus, select:focus { border-color: var(--primary); }
   flex: 0 0 auto; font-size: 11px; padding: 1px 6px; border-radius: 999px;
   background: rgba(49, 194, 124, .16); color: var(--primary);
 }
-.dir-hidden-head { margin-top: 8px; font-size: 12px; color: var(--text-mute); }
-.dir-hidden { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
-.dir-hidden .chip { max-width: 100%; overflow-wrap: anywhere; }
+
 
 /* ---------------- 播放器弹窗（player-window 组件风格） ---------------- */
 /* 播放器打开时锁住背景滚动，避免弹窗后面的页面跟着动 */
@@ -955,7 +955,8 @@ html[data-theme="light"] .sidebar { border-right-color: var(--border); }
   /* 第二列必须写 minmax(0, 1fr)：只写 1fr 时该列 min 是 auto，
      遇到不断行的长目录路径（select 的 option、.hint 里的长路径）会把网格撑到卡片外，
      即用户反馈的「控件/文字超出设置卡片背景框」。 */
-  grid-template-columns: minmax(108px, 38%) minmax(0, 1fr);
+  /* 标签列固定一个合适宽度（不再按百分比随卡片变宽而拉大），右侧控件列吃掉剩余空间 */
+  grid-template-columns: minmax(120px, 236px) minmax(0, 1fr);
   align-items: center;
   gap: 6px 14px;
 }
@@ -965,6 +966,10 @@ html[data-theme="light"] .sidebar { border-right-color: var(--border); }
 #view-settings .field > input[type="text"],
 #view-settings .field > input[type="number"],
 #view-settings .field > select,
+/* 除「标签」与「提示文字」外的直属子元素一律放到右侧控件列。
+   否则它们会被自动排进第一列（标签列，固定 236px），
+   例如 #dir-list、.push-row 会被压成 236px 宽的一小条，右边留一大片空白 */
+#view-settings .field > *:not(label):not(.hint) { grid-column: 2; }
 #view-settings .field > .check { grid-column: 2; }
 #view-settings .field > .check { margin: 2px 0; }
 /* 控件可收缩 + 长文本可断行：兜住超长目录名/提示文案 */
@@ -993,6 +998,28 @@ html[data-theme="light"] .sidebar { border-right-color: var(--border); }
   box-shadow: var(--shadow);
 }
 .settings-save .btn { min-width: 132px; }
+
+/* 设置页最下方的「关于」信息块（开发者 / 发布者） */
+.settings-about {
+  margin-top: 16px;
+  padding: 14px 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.settings-about .about-head { margin-bottom: 8px; }
+.settings-about .about-head h2 { margin: 0; font-size: 14px; }
+.settings-about .hint { margin: 0; }
+.settings-about .link { cursor: pointer; }
+
+/* 小屏：设置项改成单列，标签在上、控件在下，避免被窄屏挤成两截 */
+@media (max-width: 560px) {
+  #view-settings .field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  #view-settings .field > * { grid-column: 1 / -1; }
+}
 
 /* ==========================================================
    付费内容：置灰不可选 / 付费标签

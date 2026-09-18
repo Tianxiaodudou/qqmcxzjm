@@ -2719,12 +2719,11 @@ function renderDirOptions() {
   renderDirManaged();
 }
 
-/** 已授权文件夹列表：每个都能「移除」（当前下载目录除外），移除的进「已移除」可一键恢复。 */
+/** 已授权文件夹列表：每个都能「移除」（当前下载目录除外）；移除需二次确认，移除后不再提供恢复。 */
 function renderDirManaged() {
   const box = $('#dir-list');
   if (!box) return;
   const authorized = state.authorizedDirs || [];
-  const hidden = state.hiddenDirs || [];
   const current = (state.settings && state.settings.download_dir) || '';
   const rows = authorized.map((dir) => {
     const isCurrent = dir === current;
@@ -2734,31 +2733,19 @@ function renderDirManaged() {
       <button class="btn btn-sm btn-ghost" data-dir-remove="${esc(dir)}"${isCurrent ? ' disabled title="当前下载目录不能移除，请先切换到别的目录"' : ''}>移除</button>
     </div>`;
   }).join('');
-  const hiddenRows = hidden.length
-    ? `<div class="dir-hidden-head">已移除（点一下恢复）：</div><div class="dir-hidden">${hidden.map((dir) =>
-        `<button class="chip" data-dir-restore="${esc(dir)}" title="恢复 ${esc(dir)}">${esc(dir)} ＋恢复</button>`).join('')}</div>`
-    : '';
-  box.innerHTML = (rows || '<div class="empty">还没有已授权的文件夹，点上面的「选择文件夹…」添加。</div>') + hiddenRows;
+  box.innerHTML = rows || '<div class="empty">还没有已授权的文件夹，点上面的「选择文件夹…」添加。</div>';
 }
 
-/** 移除一个已授权目录（只是从列表里收起，随时可恢复；当前下载目录不允许移除）。 */
+/** 移除一个已授权目录（二次确认；移除后不再出现在列表中，当前下载目录不允许移除）。 */
 async function removeAuthorizedDir(dir) {
   const current = (state.settings && state.settings.download_dir) || '';
   if (!dir) return;
   if (dir === current) { toast('当前下载目录不能移除，请先切换到别的目录', 'warn'); return; }
+  const ok = window.confirm(`确定移除该文件夹？\n\n${dir}\n\n移除后它将不再出现在列表里；若以后还需使用，请用上方的「选择文件夹…」重新选择。`);
+  if (!ok) return;
   try {
     await withLoading(() => api('/settings', { method: 'POST', body: { dir_hidden_add: dir } }));
-    toast('已从列表移除，可在「已移除」里恢复', 'success');
-    await loadSettings({ force: true });
-  } catch (err) { handleError(err); }
-}
-
-/** 恢复一个被移除的目录。 */
-async function restoreAuthorizedDir(dir) {
-  if (!dir) return;
-  try {
-    await withLoading(() => api('/settings', { method: 'POST', body: { dir_hidden_remove: dir } }));
-    toast('已恢复该文件夹', 'success');
+    toast('已移除该文件夹', 'success');
     await loadSettings({ force: true });
   } catch (err) { handleError(err); }
 }
@@ -3158,12 +3145,10 @@ function bindEvents() {
   on('#btn-choose-dir', 'click', chooseDownloadDir);
   on('#setting-download-dir', 'change', saveDownloadDirFromSelect);
 
-  // 已授权文件夹的「移除 / 恢复」用事件委托，列表重绘后依然有效
+  // 已授权文件夹的「移除」用事件委托，列表重绘后依然有效（移除前会二次确认）
   on('#dir-list', 'click', (ev) => {
     const rm = ev.target.closest('button[data-dir-remove]');
-    if (rm) { if (!rm.disabled) removeAuthorizedDir(rm.dataset.dirRemove); return; }
-    const rs = ev.target.closest('button[data-dir-restore]');
-    if (rs) restoreAuthorizedDir(rs.dataset.dirRestore);
+    if (rm && !rm.disabled) removeAuthorizedDir(rm.dataset.dirRemove);
   });
 
   on('#task-list', 'click', (ev) => {
