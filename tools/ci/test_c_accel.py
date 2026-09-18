@@ -42,6 +42,12 @@ def find_compiler() -> list[str] | None:
     zig = shutil.which("zig")
     if zig:
         return [zig, "cc"]
+    try:  # pip install ziglang 的环境（无 PATH 上的 zig，但可 python -m ziglang cc）
+        import ziglang  # noqa: F401
+
+        return [sys.executable, "-m", "ziglang", "cc"]
+    except Exception:  # noqa: BLE001
+        pass
     return None
 
 
@@ -104,8 +110,8 @@ def main() -> int:
             mod._fast_decrypt = fast_decrypt
 
     def fast(key: bytes, buf: bytearray, offset: int) -> None:
-        mod._fast_decrypt = fast_decrypt
-        mod.make_cipher(key).decrypt(buf, offset)
+        decrypt._fast_decrypt = fast_decrypt  # 确保走 C 路径（pure 会临时把它换成空实现）
+        decrypt.make_cipher(key).decrypt(buf, offset)
 
     cases = 0
     bad: list[str] = []
@@ -133,9 +139,6 @@ def main() -> int:
                 if bytes(a) != bytes(ref):
                     diff = next(i for i in range(size) if a[i] != ref[i])
                     bad.append("%s size=%d offset=%d 首个差异@%d" % (key_name, size, offset, diff))
-                # 全零输入 → 得到密钥流；用于端到端构造加密数据
-                if size >= 4096:
-                    continue
 
     # 端到端：把「密钥流」异或到明文上伪造加密数据，再交给 C 路径还原
     for key_name, key in keys.items():
