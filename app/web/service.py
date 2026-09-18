@@ -160,6 +160,13 @@ class QQService:
 
     async def switch_account(self, key: str) -> dict[str, Any]:
         """切换当前账号：账号各自的登录态都保留在本地。"""
+        # 有进行中的任务时不允许切换：下载用的是当前账号的登录态，
+        # 中途换账号会让正在排队的任务拿到别人的凭证（或直接失败）。
+        from .context import manager as _manager  # 延迟导入，避免与 context 循环依赖
+
+        active = _manager.active_count()
+        if active:
+            raise errors.BadRequestError(f"还有 {active} 个任务正在进行，请先「全部暂停」再切换账号")
         credential = store.switch_account(str(key or ""))
         if not credential:
             raise errors.BadRequestError("账号不存在或登录态已失效，请重新登录")
@@ -417,6 +424,7 @@ class QQService:
             value = self._to_int(self._field(file_info, key, default=0))
             if value:
                 sizes[key.replace("size_", "")] = value
+        pay = self.pay_info(song)
         return {
             "songmid": str(self._field(song, "mid", "songmid")),
             "songid": self._to_int(self._field(song, "id", "songid", default=0)),
@@ -429,6 +437,10 @@ class QQService:
             "media_mid": str(self._field(file_info, "media_mid")),
             "song_type": self._to_int(self._field(song, "type", default=1), 1),
             "sizes": sizes,
+            # 列表里就能判断"这首能不能下"：QQ 对未购买的付费数字专辑/已下架曲目
+            # 会把各音质 size 全部置 0（详情接口也只回空壳），前端据此置灰或隐藏。
+            "available": bool(sizes),
+            "pay": pay,
         }
 
     @classmethod
@@ -453,6 +465,22 @@ class QQService:
             if value not in (None, ""):
                 return cls._to_int(value)
         return 0
+
+    @classmethod
+    def pay_info(cls, track: Any) -> dict[str, Any]:
+        """播放 / 下载 / 付费标记：前端据此提示“付费内容”，下载失败时用于判定失败原因。"""
+        pay = cls._field(track, "pay", default=None)
+        if pay is None:
+            return {}
+        return {
+            "pay_play": cls._to_int(cls._field(pay, "pay_play", default=0)),
+            "pay_down": cls._to_int(cls._field(pay, "pay_down", default=0)),
+            "pay_status": cls._to_int(cls._field(pay, "pay_status", default=0)),
+            "pay_month": cls._to_int(cls._field(pay, "pay_month", default=0)),
+            "price_track": cls._to_int(cls._field(pay, "price_track", default=0)),
+            "price_album": cls._to_int(cls._field(pay, "price_album", default=0)),
+            "time_free": cls._to_int(cls._field(pay, "time_free", default=0)),
+        }
 
     def song_detail_meta(self, response: Any, track: Any) -> dict[str, Any]:
         """歌曲详情中除基础信息外的发行 / 语言 / 曲目 / 公司等字段（全部来自该歌曲 ID）。"""
@@ -523,6 +551,7 @@ class QQService:
             "from": str(self._field(extras, "from", default="")),
             "wiki_url": str(self._field(extras, "wikiurl", "wiki_url", default="")),
             "replaygain": replay,
+            "pay": self.pay_info(track),
         }
 
     def songlist_summary(self, item: Any) -> dict[str, Any]:

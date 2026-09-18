@@ -76,8 +76,6 @@ def main(argv: list[str]) -> int:
 
         inner = members.get("app.tgz")
         if inner is not None:
-            import io
-
             data = tar.extractfile(inner)
             if data is None:
                 errors.append("app.tgz 无法读取")

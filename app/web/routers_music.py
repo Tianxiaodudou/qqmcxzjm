@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Body, Query
+from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
 from . import env, errors, store

@@ -104,31 +104,21 @@ def is_logged_in() -> bool:
     return bool(cred and cred.get("musickey") and cred.get("musicid"))
 
 
-def login_status() -> dict[str, Any]:
-    """返回给前端的登录态，绝不包含凭证本体。"""
-    cred = load_credentials()
-    if not cred:
-        return {"logged_in": False}
-    info = account_info_for(account_key(cred))
-    return {
-        "logged_in": True,
-        "musicid": security.mask(str(cred.get("musicid", ""))),
-        "nickname": cred.get("nickname") or info.get("nickname") or "",
-        "avatar": cred.get("avatar") or info.get("avatar") or "",
-        "vip_level": info.get("vip_level") or "",
-        "vip_desc": info.get("vip_desc") or "",
-        "vip_expire": info.get("vip_expire") or "",
-        "login_type": cred.get("login_type") or "",
-        "updated_at": cred.get("updated_at") or 0,
-    }
-
-
 # --------------------------------------------------------------------------
 # 设置
 # --------------------------------------------------------------------------
+VALID_PAID_MODES = ("gray", "hide")
+VALID_THEMES = ("light", "dark", "auto")
+
 DEFAULT_SETTINGS: dict[str, Any] = {
     "lyric_trans": env.DEFAULT_LYRIC_TRANS,
     "download_dir": env.WIZARD_MEDIA_DIR or str(env.DATA_DIR / "downloads"),
+    # 列表里的付费内容（无可用音源）怎么显示：gray=置灰且不可选中，hide=直接隐藏
+    "paid_mode": "gray",
+    # 界面主题：light / dark / auto（跟随系统）
+    "theme": "auto",
+    # 同类事件推送去重窗口（分钟，0=不去重）
+    "push_dedup_minutes": 3,
     "interval_min_ms": env.DEFAULT_INTERVAL_MIN_MS,
     "interval_max_ms": env.DEFAULT_INTERVAL_MAX_MS,
     "meta_full": env.DEFAULT_META_FULL,
@@ -155,6 +145,11 @@ def load_settings() -> dict[str, Any]:
             merged.update({k: v for k, v in data.items() if k in DEFAULT_SETTINGS})
         if not merged.get("download_dir"):
             merged["download_dir"] = DEFAULT_SETTINGS["download_dir"]
+        # 旧版本允许的 paid_mode=off 已取消（需求为「置灰 / 隐藏」二选一），历史配置归一为默认值
+        if merged.get("paid_mode") not in VALID_PAID_MODES:
+            merged["paid_mode"] = DEFAULT_SETTINGS["paid_mode"]
+        if merged.get("theme") not in VALID_THEMES:
+            merged["theme"] = DEFAULT_SETTINGS["theme"]
         return merged
 
 
@@ -396,10 +391,6 @@ def account_list() -> list[dict[str, Any]]:
     return items
 
 
-def current_account_key() -> str:
-    return load_accounts().get("current") or ""
-
-
 def switch_account(key: str) -> dict[str, Any] | None:
     """切换当前账号：把该账号的凭证写成「当前凭证」。"""
     with _LOCK:
@@ -432,13 +423,6 @@ def account_info_for(key: str) -> dict[str, Any]:
         if item.get("key") == key:
             return item
     return {}
-
-
-def account_credentials(key: str) -> dict[str, Any] | None:
-    data = load_accounts()
-    target = next((a for a in data["accounts"] if a.get("key") == str(key)), None)
-    credential = target.get("credential") if target else None
-    return credential if isinstance(credential, dict) else None
 
 
 def remove_account(key: str) -> dict[str, Any]:

@@ -342,9 +342,48 @@ function switchView(view) {
 }
 
 /* ---------------- 通用渲染：歌曲列表 ---------------- */
+/* ---------------- 付费内容：付费单曲 / 未购买的付费数字专辑 ---------------- */
+/* 后端 song_summary 的 available=false 表示「需要购买后才能下载」。 */
+function isLocked(song) { return !!(song && song.available === false); }
+
+/** 付费内容处理方式：gray=置灰不可选（默认）｜hide=直接隐藏（需求里二选一，由用户设置决定） */
+function paidMode() {
+  const mode = String((state.settings || {}).paid_mode || 'gray').toLowerCase();
+  return mode === 'hide' ? 'hide' : 'gray';
+}
+
+/** 列表里真正要渲染的歌曲（hide 模式剔除付费内容）。 */
+function visibleSongs(songs) {
+  const list = Array.isArray(songs) ? songs : [];
+  return paidMode() === 'hide' ? list.filter((s) => !isLocked(s)) : list;
+}
+
+/** 可勾选 / 可下载的歌曲（付费内容一律排除）。 */
+function selectableSongs(songs) {
+  const list = Array.isArray(songs) ? songs : [];
+  return list.filter((s) => !isLocked(s));
+}
+
+/** 该歌曲在当前设置下是否「置灰不可选」。 */
+function lockedForUi(song) { return isLocked(song); }
+
 function songRowHtml(song, index, checked) {
   const tag = song.subtitle ? `<span class="tag">${esc(song.subtitle).slice(0, 8)}</span>` : '';
   const album = song.album ? ` · ${esc(song.album)}` : '';
+  if (lockedForUi(song)) {
+    return `
+    <label class="checkbox"><input type="checkbox" disabled title="付费内容，购买后才能下载" /></label>
+    <span class="idx">${index + 1}</span>
+    <div class="info">
+      <div class="name" title="${esc(song.name)}">${esc(song.name)}<span class="tag tag-lock">付费</span></div>
+      <div class="sub" title="需在 QQ音乐购买后才能下载">${esc(song.singer || '未知歌手')}${album} · 需购买后才能下载</div>
+    </div>
+    <span class="duration">${fmtDuration(song.interval)}</span>
+    <div class="ops">
+      <button class="btn btn-sm btn-ghost" disabled>试听</button>
+      <button class="btn btn-sm btn-primary" disabled>下载</button>
+    </div>`;
+  }
   return `
     <label class="checkbox"><input type="checkbox" data-role="pick" data-songmid="${esc(song.songmid)}"${checked ? ' checked' : ''} /></label>
     <span class="idx">${index + 1}</span>
@@ -360,12 +399,16 @@ function songRowHtml(song, index, checked) {
 }
 
 function renderSongList(container, songs, sel, emptyText = '暂无歌曲') {
-  if (!songs.length) {
-    container.innerHTML = `<li class="empty">${esc(emptyText)}</li>`;
+  const list = visibleSongs(songs);          // 付费内容「隐藏」模式在这里生效
+  const dir = (state.settings || {}).ui_direction;   // 预留：排序方向（当前未启用）
+  void dir;
+  if (!list.length) {
+    const onlyLocked = Array.isArray(songs) && songs.length > 0;
+    container.innerHTML = `<li class="empty">${esc(onlyLocked ? '付费内容已按设置隐藏' : emptyText)}</li>`;
     return;
   }
-  container.innerHTML = songs
-    .map((song, i) => `<li class="song-item${sel.has(song.songmid) ? ' selected' : ''}" data-songmid="${esc(song.songmid)}">${songRowHtml(song, i, sel.has(song.songmid))}</li>`)
+  container.innerHTML = list
+    .map((song, i) => `<li class="song-item${sel.has(song.songmid) ? ' selected' : ''}${lockedForUi(song) ? ' locked' : ''}" data-songmid="${esc(song.songmid)}">${songRowHtml(song, i, sel.has(song.songmid))}</li>`)
     .join('');
 }
 
@@ -456,12 +499,16 @@ function bindSongListEvents(container, sel, listRef, onChange) {
 }
 
 function updateBulkBar(allBox, invertBtn, countEl, sel, songs) {
-  if (allBox) allBox.checked = songs.length > 0 && sel.size === songs.length;
-  if (invertBtn) invertBtn.disabled = !songs.length;
+  const shown = visibleSongs(songs);          // 与列表实际渲染的行保持一致
+  const pickable = selectableSongs(shown);    // 付费内容不可勾选
+  if (allBox) allBox.checked = pickable.length > 0 && sel.size === pickable.length;
+  if (invertBtn) invertBtn.disabled = !pickable.length;
   // busy 时显示的是「正在载入完整列表 x/y」，不要覆盖成计数
   if (countEl && !countEl.dataset.busy) {
-    countEl.textContent = songs.length
-      ? (sel.size ? `已选 ${sel.size} / 共 ${songs.length} 首` : `共 ${songs.length} 首`)
+    const blocked = shown.length - pickable.length;
+    const tail = blocked > 0 ? `（${blocked} 首付费内容不可选）` : '';
+    countEl.textContent = shown.length
+      ? (sel.size ? `已选 ${sel.size} / 共 ${shown.length} 首${tail}` : `共 ${shown.length} 首${tail}`)
       : '';
   }
 }
@@ -519,20 +566,27 @@ async function fetchAllPages({ fetchPage, num = ALL_PAGE_NUM, target = 0, onProg
 }
 
 function invertSelection(sel, songs) {
-  songs.forEach((song) => {
+  selectableSongs(visibleSongs(songs)).forEach((song) => {
     if (sel.has(song.songmid)) sel.delete(song.songmid); else sel.add(song.songmid);
   });
 }
 
 function selectAll(sel, songs, checked) {
-  songs.forEach((song) => { if (checked) sel.add(song.songmid); else sel.delete(song.songmid); });
+  selectableSongs(visibleSongs(songs)).forEach((song) => {
+    if (checked) sel.add(song.songmid); else sel.delete(song.songmid);
+  });
 }
 
 const TASK_BATCH_MAX = 100;   // 与后端 MAX_BATCH 对齐：单次最多创建 100 个任务
 
 async function createTasks(songs, { silent = false } = {}) {
-  const payload = songs
-    .filter((s) => s && s.songmid)
+  const wanted = (Array.isArray(songs) ? songs : []).filter((s) => s && s.songmid);
+  const blocked = wanted.filter((s) => lockedForUi(s));
+  if (blocked.length) {
+    toast(`已跳过 ${blocked.length} 首付费内容（需在 QQ音乐购买后才能下载）`, 'warn');
+  }
+  const payload = wanted
+    .filter((s) => !lockedForUi(s))
     .map((s) => ({
       songmid: s.songmid,
       songid: Number(s.songid) || 0,
@@ -1650,7 +1704,7 @@ function renderTasks() {
           ${rows}
           ${detail}
           ${outName}
-          ${task.fail_reason ? `<div class="task-foot"><span class="fail-reason">失败原因：${esc(task.fail_reason)}</span></div>` : ''}
+          ${task.fail_reason ? `<div class="task-foot"><span class="fail-reason" title="${esc(task.fail_reason)}">失败原因：${esc(task.fail_reason_text || task.message || '下载失败，原因未知，请重试；若持续失败请查看日志')}</span></div>` : ''}
         </div>`;
     })
     .join('');
@@ -1716,6 +1770,37 @@ async function retryTask(taskId) {
     startTaskPolling();
   } catch (err) {
     handleError(err);
+  }
+}
+
+/* ---------------- 任务批量操作：全部重试 / 全部暂停 / 全部继续 ---------------- */
+const TASK_BATCH_ACTIONS = {
+  pause: { path: '/tasks/pause', key: 'paused', ok: (n) => `已暂停 ${n} 个任务`, none: '没有正在下载的任务' },
+  resume: { path: '/tasks/resume', key: 'resumed', ok: (n) => `已继续 ${n} 个任务`, none: '没有暂停中的任务' },
+  retry_all: { path: '/tasks/retry_all', key: 'retried', ok: (n) => `已重新加入 ${n} 个任务`, none: '没有失败或暂停的任务' },
+};
+
+async function taskBatch(action) {
+  const conf = TASK_BATCH_ACTIONS[action];
+  if (!conf) return;
+  const btn = $(`#btn-tasks-${action === 'retry_all' ? 'retry-all' : action === 'pause' ? 'pause-all' : 'resume-all'}`);
+  setBtnBusy(btn, true, '处理中…');
+  try {
+    const data = await api(conf.path, { method: 'POST' });
+    const n = Number(data[conf.key]) || 0;
+    toast(n ? conf.ok(n) : conf.none, n ? 'success' : 'info');
+    if (Array.isArray(data.tasks)) {
+      state.tasks.items = data.tasks;     // 接口已回传最新列表，先渲染再校准
+      state.tasks.loadedAt = Date.now();
+      if (state.view === 'tasks') renderTasks();
+    }
+    await refreshTasks();
+    updateTaskBadge();
+    if (n) startTaskPolling();
+  } catch (err) {
+    handleError(err);
+  } finally {
+    setBtnBusy(btn, false);
   }
 }
 
@@ -1910,12 +1995,40 @@ async function loadSettingsInner({ force = false, background = false } = {}) {
   }
 }
 
+/* ---------------- 主题：跟随系统 / 浅色 / 深色 ---------------- */
+const themeMedia = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
+
+/** 当前实际生效的主题（auto 时取系统偏好）。 */
+function resolvedTheme() {
+  const pref = String((state.settings || {}).theme || 'auto').toLowerCase();
+  if (pref === 'light' || pref === 'dark') return pref;
+  return themeMedia && themeMedia.matches ? 'light' : 'dark';
+}
+
+/** 把主题写到 <html data-theme>，样式表据此切换配色变量。 */
+function applyTheme() {
+  document.documentElement.setAttribute('data-theme', resolvedTheme());
+}
+
+if (themeMedia && themeMedia.addEventListener) {
+  themeMedia.addEventListener('change', () => {
+    if (String((state.settings || {}).theme || 'auto').toLowerCase() === 'auto') applyTheme();
+  });
+}
+
 /** 用已有的 state.settings 渲染设置页（缓存命中时直接调用，不再发请求） */
 function applySettings() {
   const s = state.settings || {};
   $('#setting-lyric-trans').checked = !!s.lyric_trans;
   $('#setting-meta-full').checked = s.meta_full !== false;
   $('#setting-meta-json').checked = !!s.meta_json;
+  const themeSel = $('#setting-theme');
+  if (themeSel) themeSel.value = ['light', 'dark', 'auto'].indexOf(s.theme) >= 0 ? s.theme : 'auto';
+  const paidSel = $('#setting-paid-mode');
+  if (paidSel) paidSel.value = paidMode();
+  const dedupInput = $('#setting-push-dedup-minutes');
+  if (dedupInput) dedupInput.value = Number(s.push_dedup_minutes) > 0 ? s.push_dedup_minutes : 3;
+  applyTheme();
   renderDirOptions();
   $('#setting-interval-min').value = s.interval_min_ms || 300;
   $('#setting-interval-max').value = s.interval_max_ms || 800;
@@ -1995,6 +2108,16 @@ async function saveSettings() {
   payload.push_on_dup = !!($('#setting-push-dup') || {}).checked;
   payload.push_on_fail = !!($('#setting-push-fail') || {}).checked;
   payload.push_on_expire = !!($('#setting-push-expire') || {}).checked;
+  // 同类事件推送去重分钟数（0 = 不去重）
+  const dedupValue = Number(($('#setting-push-dedup-minutes') || {}).value);
+  if (!Number.isFinite(dedupValue) || dedupValue < 0 || dedupValue > 1440) {
+    toast('推送去重分钟数需在 0 ~ 1440（分钟）之间', 'warn');
+    return;
+  }
+  payload.push_dedup_minutes = Math.round(dedupValue);
+  // 界面：主题 + 付费内容处理方式（整页一次提交）
+  payload.theme = ($('#setting-theme') || {}).value || 'auto';
+  payload.paid_mode = ($('#setting-paid-mode') || {}).value || 'gray';
   // 首页四块推荐的数量上限：1 ~ 上限（下限交给 QQ 服务器：拿不到就少显示）
   const homeFields = [
     ['#setting-home-songlists', 'home_songlists_max', 1, 60, '推荐歌单'],
@@ -2014,6 +2137,8 @@ async function saveSettings() {
     const data = await withLoading(() => api('/settings', { method: 'POST', body: payload }));
     state.settings = data.settings || state.settings;
     state.home.loadedAt = 0;   // 数量变了 → 下次进首页按新上限重新取
+    applyTheme();              // 主题立即生效
+    applyPushSettings();       // 推送开关回填（后端可能做了归一化）
     toast('设置已保存', 'success');
   } catch (err) {
     handleError(err);
@@ -2291,11 +2416,21 @@ function bindEvents() {
   bindSonglistCards($('#search-songlists'));
 
   on('#btn-tasks-clear-all', 'click', () => clearTasks('all'));
+  on('#btn-tasks-retry-all', 'click', () => taskBatch('retry_all'));
+  on('#btn-tasks-pause-all', 'click', () => taskBatch('pause'));
+  on('#btn-tasks-resume-all', 'click', () => taskBatch('resume'));
 
   on('#btn-history-reload', 'click', () => loadHistory({ force: true }));
   on('#btn-history-clear', 'click', clearHistory);
 
   on('#btn-save-settings', 'click', saveSettings);
+  // 主题：选完立刻预览（真正落库仍由「保存设置」统一提交）
+  on('#setting-theme', 'change', (ev) => {
+    state.settings = Object.assign({}, state.settings, { theme: (ev.target && ev.target.value) || 'auto' });
+    applyTheme();
+  });
+  // 去重分钟数：输入时同步「同类事件 N 分钟内只推一次」文案
+  on('#setting-push-dedup-minutes', 'input', syncDedupLabels);
   on('#btn-push-test', 'click', sendPushTest);
   bindLogsPanel();
   bindAccountPanel();
@@ -2634,6 +2769,15 @@ function bindAccountPanel() {
 
 
 /* ---------------- 消息推送设置 ---------------- */
+/** 推送事件里的「同一事件 N 分钟内只推一次」文案跟随设置项变化。 */
+function syncDedupLabels() {
+  const minutes = Number(($('#setting-push-dedup-minutes') || {}).value);
+  const text = Number.isFinite(minutes) && minutes > 0
+    ? `同类事件 ${minutes} 分钟内只推一次`
+    : '同类事件不去重，每次都推';
+  $$('[data-dedup-label]').forEach((el) => { el.textContent = text; });
+}
+
 function applyPushSettings() {
   const s = state.settings || {};
   const base = $('#setting-push-base'); if (base) base.value = s.push_base || '';
@@ -2643,6 +2787,9 @@ function applyPushSettings() {
   set('#setting-push-dup', s.push_on_dup);
   set('#setting-push-fail', s.push_on_fail);
   set('#setting-push-expire', s.push_on_expire);
+  const dedup = $('#setting-push-dedup-minutes');
+  if (dedup) dedup.value = Number(s.push_dedup_minutes) > 0 ? s.push_dedup_minutes : 3;
+  syncDedupLabels();
   const hint = $('#push-test-hint');
   if (hint) hint.textContent = s.push_base ? '' : '未配置推送服务地址';
 }

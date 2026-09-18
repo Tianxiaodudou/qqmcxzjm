@@ -74,15 +74,6 @@ def sanitize_filename(name: str, fallback: str = "unnamed", max_length: int = 80
     return text or fallback
 
 
-def resolve_within(base: Path, name: str) -> Path:
-    """在 base 目录下安全地拼接相对文件名，越权时抛出异常。"""
-    base_resolved = base.resolve()
-    target = (base_resolved / sanitize_filename(name)).resolve()
-    if base_resolved != target and base_resolved not in target.parents:
-        raise ValueError("目标路径越权")
-    return target
-
-
 def is_authorized_dir(path: Path, extra: list[str] | None = None) -> bool:
     """判断目录是否位于授权范围内。
 

@@ -438,13 +438,3 @@ def _write_m4a(audio: Any, meta: dict, cover: bytes | None, lyric: str, translat
     f.save(audio)
     return written
 
-
-def load_cover(path: str | Path | None) -> bytes | None:
-    """读取封面文件内容，失败返回 None（不阻断下载任务）。"""
-    if not path:
-        return None
-    try:
-        data = Path(path).read_bytes()
-    except OSError:
-        return None
-    return data if len(data) > 100 else None

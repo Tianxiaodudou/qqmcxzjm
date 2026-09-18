@@ -57,6 +57,12 @@ class SettingsRequest(BaseModel):
     push_on_fail: bool | None = None
     push_on_dup: bool | None = None
     push_on_expire: bool | None = None
+    # 同类推送事件的去重窗口（分钟，0 = 不去重）
+    push_dedup_minutes: int | None = None
+    # 列表里的付费内容（无可用音源）怎么处理：gray 置灰不可选 / hide 直接隐藏
+    paid_mode: str | None = None
+    # 界面主题：light / dark / auto（跟随系统）
+    theme: str | None = None
 
 
 def _validate_dir(raw: str, extra_allowed: list[str] | None = None) -> Path:
@@ -127,15 +133,18 @@ async def _authorized_dirs(request: Request) -> dict[str, Any]:
 @router.get("/tasks")
 async def list_tasks() -> dict[str, Any]:
     tasks = manager.list_tasks()
-    counts = {"running": 0, "success": 0, "failed": 0}
+    counts = {"running": 0, "paused": 0, "success": 0, "failed": 0}
     for task in tasks:
         if task["status"] == "success":
             counts["success"] += 1
         elif task["status"] == "failed":
             counts["failed"] += 1
+        elif task["status"] == "paused":
+            counts["paused"] += 1
         else:
             counts["running"] += 1
-    return {"ok": True, "tasks": tasks, "counts": counts}
+    # active = 真正在跑的任务数（暂停的不算），前端据此决定「全部暂停」是否可用
+    return {"ok": True, "tasks": tasks, "counts": counts, "active": counts["running"]}
 
 
 @router.post("/tasks")
@@ -178,6 +187,43 @@ async def create_tasks(payload: BatchRequest) -> dict[str, Any]:
 async def retry_task(task_id: str) -> dict[str, Any]:
     task = manager.retry(task_id)
     return {"ok": True, "task": task.to_public()}
+
+
+@router.post("/tasks/pause")
+async def pause_tasks() -> dict[str, Any]:
+    """全部暂停：正在下载的任务在下一个数据块处停下，已下的部分留作续传用。"""
+    changed = manager.pause_all()
+    return {
+        "ok": True,
+        "paused": changed,
+        "active": manager.active_count(),
+        "tasks": manager.list_tasks(),
+        "message": f"已暂停 {changed} 个任务" if changed else "没有正在下载的任务",
+    }
+
+
+@router.post("/tasks/resume")
+async def resume_tasks() -> dict[str, Any]:
+    """全部继续：暂停的任务重新排队，已下载的部分会接着下（断点续传）。"""
+    changed = manager.resume_all()
+    return {
+        "ok": True,
+        "resumed": changed,
+        "tasks": manager.list_tasks(),
+        "message": f"已继续 {changed} 个任务" if changed else "没有暂停中的任务",
+    }
+
+
+@router.post("/tasks/retry_all")
+async def retry_all_tasks() -> dict[str, Any]:
+    """全部重试：失败与暂停的任务一起重来。"""
+    changed = manager.retry_all()
+    return {
+        "ok": True,
+        "retried": changed,
+        "tasks": manager.list_tasks(),
+        "message": f"已重新加入 {changed} 个任务" if changed else "没有失败或暂停的任务",
+    }
 
 
 @router.post("/tasks/clear")
@@ -313,6 +359,19 @@ async def update_settings(payload: SettingsRequest, request: Request) -> dict[st
         value = getattr(payload, key)
         if value is not None:
             settings[key] = bool(value)
+    if payload.push_dedup_minutes is not None:
+        # 0 表示不去重；上限 24 小时，避免手滑填出天文数字把推送全吞掉
+        settings["push_dedup_minutes"] = max(0, min(24 * 60, int(payload.push_dedup_minutes)))
+    if payload.paid_mode is not None:
+        mode = str(payload.paid_mode).strip().lower()
+        if mode not in store.VALID_PAID_MODES:
+            raise errors.BadRequestError("付费内容处理方式只能是 gray / hide")
+        settings["paid_mode"] = mode
+    if payload.theme is not None:
+        theme = str(payload.theme).strip().lower()
+        if theme not in store.VALID_THEMES:
+            raise errors.BadRequestError("主题只能是 light / dark / auto")
+        settings["theme"] = theme
     store.save_settings(settings)
     return {"ok": True, "settings": settings}
 

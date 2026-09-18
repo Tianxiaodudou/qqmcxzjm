@@ -211,6 +211,9 @@
             <h2>下载任务</h2>
             <div class="bulk-actions">
               <span class="muted" id="tasks-summary"></span>
+              <button class="btn btn-ghost" id="btn-tasks-resume-all">全部继续</button>
+              <button class="btn btn-ghost" id="btn-tasks-pause-all">全部暂停</button>
+              <button class="btn btn-ghost" id="btn-tasks-retry-all">全部重试</button>
               <button class="btn btn-ghost" id="btn-tasks-clear-all">清空全部</button>
             </div>
           </div>
@@ -342,7 +345,31 @@
                 （点击查看微信号 <span class="mono" data-about="publisher-wechat"></span>，可一键复制）
               </p>
             </div>
-            <button class="btn btn-primary" id="btn-save-settings">保存设置</button>
+          </details>
+
+          <details class="settings-card" open>
+            <summary class="card-head"><h2>界面与显示</h2><span class="card-hint">主题配色 / 付费内容</span></summary>
+            <div class="field">
+              <label for="setting-theme">主题</label>
+              <div class="inline">
+                <select id="setting-theme">
+                  <option value="auto">跟随系统</option>
+                  <option value="dark">深色</option>
+                  <option value="light">浅色</option>
+                </select>
+              </div>
+              <p class="hint">「跟随系统」随手机 / 电脑的深浅色模式自动切换；选完立即预览，点页面最下方的「保存设置」后长期生效。</p>
+            </div>
+            <div class="field">
+              <label for="setting-paid-mode">付费内容处理</label>
+              <div class="inline">
+                <select id="setting-paid-mode">
+                  <option value="gray">置灰不可选（默认）</option>
+                  <option value="hide">直接隐藏</option>
+                </select>
+              </div>
+              <p class="hint">付费单曲 / 需单独购买的付费数字专辑：二选一 —— 在列表里置灰（不可勾选、不可下载），或直接从列表隐藏。已购买的内容不受影响，正常显示。</p>
+            </div>
           </details>
 
           <details class="settings-card" open>
@@ -359,16 +386,28 @@
             </div>
             <div class="field">
               <label>推送事件（可多选）</label>
-              <label class="check"><input type="checkbox" id="setting-push-success" /> 下载成功（同一首歌 3 分钟内只推一次）</label>
-              <label class="check"><input type="checkbox" id="setting-push-dup" /> 已有同名文件（1 分钟内只推一次）</label>
-              <label class="check"><input type="checkbox" id="setting-push-fail" /> 下载失败（1 分钟内只推一次）</label>
+              <label class="check"><input type="checkbox" id="setting-push-success" /> 下载成功（<span data-dedup-label>同类事件 3 分钟内只推一次</span>）</label>
+              <label class="check"><input type="checkbox" id="setting-push-dup" /> 已有同名文件（<span data-dedup-label>同类事件 3 分钟内只推一次</span>）</label>
+              <label class="check"><input type="checkbox" id="setting-push-fail" /> 下载失败（<span data-dedup-label>同类事件 3 分钟内只推一次</span>）</label>
               <label class="check"><input type="checkbox" id="setting-push-expire" /> QQ音乐登录态过期</label>
+            </div>
+            <div class="field">
+              <label for="setting-push-dedup-minutes">同类事件去重（分钟）</label>
+              <div class="inline">
+                <input type="number" id="setting-push-dedup-minutes" min="0" max="1440" step="1" /> <span class="muted">分钟内只推一次</span>
+              </div>
+              <p class="hint">下载成功 / 已有同名文件 / 下载失败这三类事件，在这个时间窗内只推一次，避免一次下载几十首时刷屏；填 0 表示不去重（每次都推）。</p>
             </div>
             <div class="inline">
               <button class="btn btn-ghost" id="btn-push-test">发送测试通知</button>
               <span class="muted" id="push-test-hint"></span>
             </div>
           </details>
+
+          <div class="settings-save">
+            <span class="muted">下载 / 界面 / 消息推送的全部设置都在这里一次性保存</span>
+            <button class="btn btn-primary" id="btn-save-settings">保存设置</button>
+          </div>
         </section>
       </div>
     </main>

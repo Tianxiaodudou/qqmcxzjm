@@ -16,7 +16,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 
-from . import env, fnos_api, security, store
+from . import env, security, store
 from .context import service
 
 _UA = (

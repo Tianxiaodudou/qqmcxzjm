@@ -2,7 +2,9 @@
 
 - 请求：POST {base}/api/push，头 `Authorization: Bearer <token>`，体 `{"title","content","type"}`；
 - base / token 由用户在「设置 → 消息推送」里填写，留空则只记日志不推送；
-- 事件：下载成功（3 分钟内不重复）、已有同名文件 / 下载失败（1 分钟内不重复）、登录态过期；
+- 事件：下载成功 / 已有同名文件 / 下载失败 / 登录态过期；
+- 去重按「事件类别」：同类事件在 push_dedup_minutes 分钟内只推送一次
+  （该分钟数可在「设置 → 消息推送」里改，0 = 不去重）；
 - 每次事件都会写一条消息日志，每次推送（成功或失败）都会写一条推送记录；
 - 推送在后台线程里排队执行，队列排空后线程自动退出（不常驻）。
 """
@@ -14,9 +16,9 @@ import threading
 import time
 from typing import Any
 
-from . import env, errors, store
+from . import env, store
 
-# 去重窗口（秒）：同一去重键在该时间内只推送一次
+# 同类事件的默认去重窗口（秒）：设置项 push_dedup_minutes 会覆盖它（分钟 → 秒）
 DEDUP_WINDOWS = {
     "success": 180,
     "duplicate": 60,
@@ -24,6 +26,17 @@ DEDUP_WINDOWS = {
     "expired": 300,
     "test": 0,
 }
+
+
+def dedup_window(event: str) -> int:
+    """同类事件的去重窗口（秒）：设置里填的分钟数优先，0 或未配置 = 不去重。"""
+    try:
+        minutes = int(float(store.load_settings().get("push_dedup_minutes", 0) or 0))
+    except (TypeError, ValueError):
+        minutes = 0
+    if minutes <= 0:
+        return 0
+    return min(24 * 60, minutes) * 60
 
 # 去重登记表：key = "{event}:{dedup_key}"，值为最近一次推送时间（time.time()）
 _LAST_PUSH: dict[str, float] = {}
@@ -164,7 +177,7 @@ def notify_event(
     level = _LEVEL_BY_EVENT.get(event, "info")
     store.append_log(level, event, title, content)
     if window is None:
-        window = DEDUP_WINDOWS.get(event, 0)
+        window = dedup_window(event)
     config = push_config()
     if not config["base"] or not config["token"]:
         return {"event": event, "logged": True, "pushed": False, "reason": "未配置推送服务"}
@@ -192,20 +205,20 @@ def _task_identity(task: Any) -> tuple[str, str, str]:
 
 
 def notify_download_success(task: Any, detail: str = "") -> dict[str, Any]:
-    """下载成功（3 分钟内同一首歌不重复推送）。"""
-    label, fallback, key = _task_identity(task)
+    """下载成功（第 8 项：按事件类别去重，不再按歌曲区分）。"""
+    label, fallback, _key = _task_identity(task)
     name, detail = label, detail or fallback
     config = push_config()
     if not config["on_success"]:
         store.append_log("success", "success", f"下载成功：{name}", detail)
         return {"event": "success", "logged": True, "pushed": False, "reason": "该事件推送已关闭"}
-    return notify_event("success", f"下载成功：{name}", detail, key)
+    return notify_event("success", f"下载成功：{name}", detail, "success")
 
 
 def notify_task_failure(task: Any, detail: str = "") -> dict[str, Any]:
-    """下载失败（1 分钟内同一首歌不重复推送）。"""
-    label, fallback, key = _task_identity(task)
-    return notify_failure(label, detail or fallback, key)
+    """下载失败（第 8 项：按事件类别去重）。"""
+    label, fallback, _key = _task_identity(task)
+    return notify_failure(label, detail or fallback, "failed")
 
 
 def notify_duplicate(name: str, detail: str, dedup_key: str = "") -> dict[str, Any]:
@@ -213,7 +226,7 @@ def notify_duplicate(name: str, detail: str, dedup_key: str = "") -> dict[str, A
     if not config["on_dup"]:
         store.append_log("warn", "duplicate", f"已有同名文件：{name}", detail)
         return {"event": "duplicate", "logged": True, "pushed": False, "reason": "该事件推送已关闭"}
-    return notify_event("duplicate", f"已有同名文件：{name}", detail, dedup_key or name)
+    return notify_event("duplicate", f"已有同名文件：{name}", detail, dedup_key or "duplicate")
 
 
 def notify_failure(name: str, detail: str, dedup_key: str = "") -> dict[str, Any]:
@@ -221,7 +234,7 @@ def notify_failure(name: str, detail: str, dedup_key: str = "") -> dict[str, Any
     if not config["on_fail"]:
         store.append_log("error", "failed", f"下载失败：{name}", detail)
         return {"event": "failed", "logged": True, "pushed": False, "reason": "该事件推送已关闭"}
-    return notify_event("failed", f"下载失败：{name}", detail, dedup_key or name)
+    return notify_event("failed", f"下载失败：{name}", detail, dedup_key or "failed")
 
 
 def notify_login_expired(detail: str = "") -> dict[str, Any]:
@@ -229,19 +242,7 @@ def notify_login_expired(detail: str = "") -> dict[str, Any]:
     if not config["on_expire"]:
         store.append_log("error", "expired", "QQ音乐登录态已过期，请重新登录", detail)
         return {"event": "expired", "logged": True, "pushed": False, "reason": "该事件推送已关闭"}
-    return notify_event("expired", "QQ音乐登录态已过期", detail or "请到「下载器 → 左下角账号区」重新登录", dedup_key="login")
-
-
-def notify_error(where: str, exc: BaseException | str) -> None:
-    """把任务里的异常记成日志，登录过期则额外推送一次。"""
-    text = str(exc)
-    expired = isinstance(exc, errors.LoginExpiredError) or (
-        isinstance(exc, BaseException) and errors.classify(exc) == errors.CREDENTIAL_EXPIRED
-    ) or ("登录已过期" in text)
-    if expired:
-        notify_login_expired(text)
-        return
-    store.append_log("error", "error", f"{where} 出错", text)
+    return notify_event("expired", "QQ音乐登录态已过期", detail or "请到「下载器 → 左下角账号区」重新登录", dedup_key="expired")
 
 
 def send_test() -> dict[str, Any]:
