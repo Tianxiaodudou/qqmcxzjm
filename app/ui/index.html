@@ -369,24 +369,33 @@
               <p class="hint">每次推送都会带上请求头 <span class="mono">Authorization: Bearer &lt;Token&gt;</span>。</p>
             </div>
             <div class="field">
-              <label>推送事件与去重（可多选，各类独立设置）</label>
+              <label for="setting-push-type">消息类型</label>
+              <select id="setting-push-type">
+                <option value="text">纯文本（text）</option>
+                <option value="markdown">Markdown（markdown）</option>
+                <option value="html">富文本 HTML（html）</option>
+              </select>
+              <p class="hint">推送内容按所选类型排版（Markdown / HTML 的排版已优化）；标题固定为「QQ音乐下载器-事件类型」，单条内容最长 5000 字符，超长自动截断。</p>
+            </div>
+            <div class="field">
+              <label>推送事件与数量阈值（可多选，各类独立设置）</label>
               <div class="push-row">
                 <label class="check"><input type="checkbox" id="setting-push-success" /> 下载成功</label>
-                <span class="push-dedup">同类事件去重 <input type="number" id="setting-push-dedup-success-minutes" min="0" max="1440" step="1" /> 分钟内只推一次（0 = 不去重）</span>
+                <span class="push-dedup">每累积 <input type="number" id="setting-push-batch-success-count" min="1" max="1000" step="1" /> 首汇总推一次</span>
               </div>
               <div class="push-row">
                 <label class="check"><input type="checkbox" id="setting-push-dup" /> 已有同名文件</label>
-                <span class="push-dedup">同类事件去重 <input type="number" id="setting-push-dedup-dup-minutes" min="0" max="1440" step="1" /> 分钟内只推一次（0 = 不去重）</span>
+                <span class="push-dedup">创建任务时一次性汇总推一次</span>
               </div>
               <div class="push-row">
                 <label class="check"><input type="checkbox" id="setting-push-fail" /> 下载失败</label>
-                <span class="push-dedup">同类事件去重 <input type="number" id="setting-push-dedup-fail-minutes" min="0" max="1440" step="1" /> 分钟内只推一次（0 = 不去重）</span>
+                <span class="push-dedup">每累积 <input type="number" id="setting-push-batch-fail-count" min="1" max="1000" step="1" /> 首汇总推一次</span>
               </div>
               <div class="push-row">
                 <label class="check"><input type="checkbox" id="setting-push-expire" /> QQ音乐登录态过期</label>
-                <span class="push-dedup">同类事件去重 <input type="number" id="setting-push-dedup-expire-minutes" min="0" max="1440" step="1" /> 分钟内只推一次（0 = 不去重）</span>
+                <span class="push-dedup">每累积 <input type="number" id="setting-push-batch-expire-count" min="1" max="1000" step="1" /> 条汇总推一次</span>
               </div>
-              <p class="hint">每类事件在各自的「去重窗口」里只推一次，避免一次下载几十首时刷屏。四类互不影响：想让「下载失败」每次都收到，就把它的分钟数填 0。</p>
+              <p class="hint">按「数量阈值」聚合推送：填 1 = 每条明细即时推送，填 10 = 每 10 条明细汇总成一条（含详细信息）。一批任务全部结束（成功/失败都算）后，还会额外推一条「任务完成」通知，注明成功/失败数量与失败原因。</p>
             </div>
             <div class="inline">
               <button class="btn btn-ghost" id="btn-push-test">发送测试通知</button>
@@ -454,14 +463,6 @@
                 <label class="check"><input type="checkbox" id="setting-home-daily-show" /> 显示</label>
                 <input type="number" id="setting-home-daily-max" min="1" max="100" step="1" /> <span class="muted">首</span>
               </div>
-            </div>
-            <div class="field">
-              <label for="setting-home-similar-max">相似歌曲</label>
-              <div class="inline">
-                <label class="check"><input type="checkbox" id="setting-home-similar-show" /> 显示</label>
-                <input type="number" id="setting-home-similar-max" min="1" max="100" step="1" /> <span class="muted">首</span>
-              </div>
-              <p class="hint">在歌曲行的「详情」里展示：以这首歌为种子，推荐相似歌曲，可勾选下载。</p>
             </div>
             <div class="field">
               <label for="setting-home-fav-max">我的收藏</label>
@@ -640,6 +641,20 @@
         </div>
         <h4 class="block-title">相似歌曲 <span class="muted" id="song-detail-similar-count"></span></h4>
         <ul class="song-list" id="song-detail-similar"></ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- 「换个版本」弹窗：搜索同名歌曲的其他版本，选一个替换下载 -->
+  <div class="modal hidden" id="modal-version">
+    <div class="modal-card modal-wide">
+      <header class="modal-head">
+        <h3 id="version-title">换个版本</h3>
+        <button class="icon-btn" data-close="modal-version" title="关闭">✕</button>
+      </header>
+      <div class="modal-body">
+        <p class="hint" id="version-hint">正在搜索其他版本…</p>
+        <ul class="song-list" id="version-results"></ul>
       </div>
     </div>
   </div>

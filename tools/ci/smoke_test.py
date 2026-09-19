@@ -28,6 +28,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import web.main as main  # noqa: E402
 
+import web.notify as notify  # noqa: E402
+
 
 
 ok = 0
@@ -271,25 +273,56 @@ with TestClient(main.app) as client:
 
 
 
-    # v1.3.2：推送去重按事件分别设置（0 = 该类不去重，越界收敛到 1440）
-    def _dedup_settings_case():
+    # v1.4.0：推送聚合从「分钟数」改为「数量阈值」（每 N 条明细汇总推一次，1~1000）；
+    # 同时确认旧的 push_dedup_* 分钟数设置已彻底移除
+    def _batch_settings_case():
         client.post(
             "/api/settings",
             json={
-                "push_dedup_success_minutes": 0,
-                "push_dedup_dup_minutes": 30,
-                "push_dedup_fail_minutes": 99999,
-                "push_dedup_expire_minutes": 5,
+                "push_batch_success_count": 0,
+                "push_batch_fail_count": 99999,
+                "push_batch_expire_count": 5,
+                "push_dedup_dup_minutes": 30,   # 旧字段，应被忽略（不再写进设置）
             },
         )
         got = client.get("/api/settings").json()["settings"]
-        assert got["push_dedup_success_minutes"] == 0, got
-        assert got["push_dedup_dup_minutes"] == 30, got
-        assert got["push_dedup_fail_minutes"] == 1440, got
-        assert got["push_dedup_expire_minutes"] == 5, got
-        return [got[k] for k in sorted(k for k in got if k.startswith("push_dedup_"))]
+        assert got["push_batch_success_count"] == 1, got
+        assert got["push_batch_fail_count"] == 1000, got
+        assert got["push_batch_expire_count"] == 5, got
+        assert "push_dedup_dup_minutes" not in got, sorted(got)
+        assert not [k for k in got if k.startswith("push_dedup_")], sorted(got)
+        assert notify.batch_threshold("success") == 1, notify.batch_threshold("success")
+        assert notify.batch_threshold("failed") == 1000, notify.batch_threshold("failed")
+        return [got[k] for k in sorted(k for k in got if k.startswith("push_batch_"))]
 
-    check("settings-push-dedup-per-event", _dedup_settings_case)
+    check("settings-push-batch-counts", _batch_settings_case)
+
+    # v1.4.0：推送消息类型 text / markdown / html 可选（非法值 400），
+    # 三种排版都能生成内容，且 content 一律不超过 5000 字符
+    def _push_type_case():
+        bad = client.post("/api/settings", json={"push_type": "xml"})
+        assert bad.status_code == 400, bad.text
+        kinds = []
+        for kind in ("markdown", "html", "text"):
+            assert client.post("/api/settings", json={"push_type": kind}).status_code == 200
+            assert client.get("/api/settings").json()["settings"]["push_type"] == kind, kind
+            body = notify.render_content(f"QQ音乐下载器-{notify.EVENT_LABELS['success']}", ["下载成功：《七里香》 - 周杰伦"])
+            assert "七里香" in body, body
+            assert len(body) <= notify.MAX_CONTENT <= 5000, len(body)
+            kinds.append(body.splitlines()[0][:16])
+        assert kinds[0].startswith("# "), kinds      # markdown 标题
+        assert kinds[1].startswith("<h3>"), kinds    # html 标题
+        long_body = notify.render_content("QQ音乐下载器-下载失败", ["失败：" + "很长的歌名" * 2000])
+        assert len(long_body) <= notify.MAX_CONTENT, len(long_body)
+        assert "截断" in long_body, long_body[-40:]
+        # 标题格式固定：QQ音乐下载器-<事件类型>
+        for event, label in notify.EVENT_LABELS.items():
+            assert label, event
+        assert notify.EVENT_LABELS["batch"] == "任务完成", notify.EVENT_LABELS
+        assert set(notify.VALID_TYPES) == {"text", "markdown", "html"}, notify.VALID_TYPES
+        return kinds
+
+    check("push-type-and-render", _push_type_case)
 
     # v1.3.2：下载目录可「移除」（隐藏）/「恢复」，当前目录不允许移除
     def _dir_hidden_case():

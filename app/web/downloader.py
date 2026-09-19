@@ -216,6 +216,8 @@ class DownloadManager:
         self._queue: asyncio.Queue[str] = asyncio.Queue()
         self._worker: asyncio.Task[None] | None = None
         self._running = False
+        # 当前批次统计：一批任务（批量创建 / 重试）全部跑完后推一条「任务完成」通知
+        self._batch: dict[str, Any] = {"active": False, "success": 0, "fails": []}
         # 解密/打标签在子线程执行，_save 需要跨线程安全
         self._save_lock = threading.Lock()
 
@@ -274,6 +276,7 @@ class DownloadManager:
 
     def create_batch(self, songs: list[dict[str, Any]]) -> list[DownloadTask]:
         """批量创建：串行入队（风控要求，避免 tight loop）。"""
+        self._batch_open()
         created: list[DownloadTask] = []
         for song in songs:
             created.append(self.submit(song))
@@ -329,6 +332,7 @@ class DownloadManager:
         task = self._tasks.get(task_id)
         if not task:
             raise errors.BadRequestError("任务不存在")
+        self._batch_open()
         for key, _ in STAGES:
             if task.state_of(key) in (FAILED, DOWNLOADING, PENDING):
                 task.states[key] = PENDING
@@ -499,6 +503,9 @@ class DownloadManager:
                 self._fail(task, errors.classify(exc), str(exc))
             finally:
                 self._save()
+            # 队列排空且没有进行中的任务 → 这一批跑完了，推一条「任务完成」通知
+            if self._queue.empty() and not self.active_count():
+                self._batch_finish()
             # 风控：任务之间加入随机延时，避免请求过于规整
             settings = store.load_settings()
             low = int(settings.get("interval_min_ms", 300))
@@ -979,6 +986,7 @@ class DownloadManager:
 
         store.append_history(self._history_record(task))
         notify.notify_download_success(task)
+        self._batch_note_success()
 
         # 完成即「退休」：成功记录只留在「下载历史」里，任务列表不再堆积已完成的卡片。
         # 失败/中断的任务仍留在列表里，方便点「重试」。
@@ -1081,7 +1089,38 @@ class DownloadManager:
             notify.notify_login_expired(task.message or "请重新登录")
         else:
             notify.notify_task_failure(task, task.message)
+        self._batch_note_failure(task, task.message or errors.reason_text(reason))
         self._save()
+
+    # ---------------- 批次统计（一批任务全部结束后推「任务完成」） ----------------
+    def _batch_open(self) -> None:
+        """确保当前批次处于开启状态（同一批任务只开启一次）。"""
+        if not self._batch.get("active"):
+            self._batch = {"active": True, "success": 0, "fails": []}
+
+    def _batch_note_success(self) -> None:
+        if self._batch.get("active"):
+            self._batch["success"] = int(self._batch.get("success") or 0) + 1
+
+    def _batch_note_failure(self, task: DownloadTask, reason: str) -> None:
+        if not self._batch.get("active"):
+            return
+        name = str(getattr(task, "name", "") or getattr(task, "songmid", "") or "未知歌曲")
+        singer = str(getattr(task, "singer", "") or "")
+        label = f"{name} - {singer}" if singer else name
+        self._batch.setdefault("fails", []).append((label, str(reason or "")))
+
+    def _batch_finish(self) -> None:
+        """队列排空时收尾：推送「任务完成」（成功/失败数量 + 失败原因）。"""
+        batch = self._batch
+        if not batch.get("active"):
+            return
+        success = int(batch.get("success") or 0)
+        fails = list(batch.get("fails") or [])
+        self._batch = {"active": False, "success": 0, "fails": []}
+        if success or fails:
+            notify.notify_batch_done(success, fails)
+        notify.flush_all()
 
     # ---------------- 持久化 ----------------
     def _save(self) -> None:

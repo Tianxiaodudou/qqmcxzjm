@@ -771,18 +771,18 @@ function renderHomeHub() {
  * 入口卡片与面板骨架都由这里动态生成（index.html 只留了 #home-panels-extra 挂载点），
  * 点开某个板块才去拉它的接口：首页本身仍然只请求原有的 4 个推荐接口。 */
 const BLOCK_PANEL_KEYS = ['feed', 'chart', 'newalbum', 'singer', 'hotkey', 'daily'];
-const EXTRA_HOME_KEYS = BLOCK_PANEL_KEYS.concat(['similar', 'fav']);
+const EXTRA_HOME_KEYS = BLOCK_PANEL_KEYS.concat(['fav']);
 const EXTRA_HOME_LABELS = {
   feed: '首页信息流', chart: '排行榜', newalbum: '新碟上架', singer: '热门歌手',
-  hotkey: '热搜榜', daily: '每日 30 首', similar: '相似歌曲', fav: '我的收藏',
+  hotkey: '热搜榜', daily: '每日 30 首', fav: '我的收藏',
 };
-const EXTRA_HOME_ICONS = { feed: '📰', chart: '🏆', newalbum: '💿', singer: '🎤', hotkey: '🔥', daily: '📅', similar: '🎯', fav: '❤️' };
+const EXTRA_HOME_ICONS = { feed: '📰', chart: '🏆', newalbum: '💿', singer: '🎤', hotkey: '🔥', daily: '📅', fav: '❤️' };
 const EXTRA_HOME_DESC = {
   feed: 'QQ音乐首页推的卡片', chart: '热歌榜 / 飙升榜 / 新歌榜', newalbum: '最近发布的新专辑',
   singer: '歌手榜，点进去看他的歌', hotkey: '大家都在搜什么',
-  daily: '每天更新的一批新歌', similar: '在歌曲「详情」里按种子歌推荐', fav: '打开收藏页，下载我喜欢的歌',
+  daily: '每天更新的一批新歌', fav: '打开收藏页，下载我喜欢的歌',
 };
-const EXTRA_HOME_UNIT = { feed: '首', chart: '首', newalbum: '张', singer: '位', hotkey: '个', daily: '首', similar: '首', fav: '首' };
+const EXTRA_HOME_UNIT = { feed: '首', chart: '首', newalbum: '张', singer: '位', hotkey: '个', daily: '首', fav: '首' };
 const EXTRA_BLOCK_FALLBACK = 30;
 
 /** 该板块是否显示（设置里关掉就整块隐藏） */
@@ -871,7 +871,6 @@ function syncExtraHomeEntries() {
     setCount(key, st.count ? `${st.count} ${EXTRA_HOME_UNIT[key]}` : '暂无');
   });
   setCount('fav', state.loggedIn ? '打开收藏页' : '需要登录');
-  setCount('similar', '在歌曲「详情」里');
 }
 
 /** 打开板块（首次进入才拉数据） */
@@ -2323,6 +2322,7 @@ function renderTasks() {
             <span class="badge idle">${esc(task.quality_label || QUALITY_TEXT[task.quality] || badge)}</span>
             ${stateBadge(task.status)}
             <button class="btn btn-sm btn-primary" data-role="retry" data-task="${esc(task.id)}"${task.status === 'failed' ? '' : ' disabled'}>重试</button>
+            ${task.status === 'failed' ? `<button class="btn btn-sm btn-ghost" data-role="version" data-task="${esc(task.id)}">换个版本</button>` : ''}
           </div>
           ${rows}
           ${detail}
@@ -2394,6 +2394,113 @@ async function retryTask(taskId) {
   } catch (err) {
     handleError(err);
   }
+}
+
+/* ---------------- 换个版本：失败任务改用其它版本重新下载 ---------------- */
+/** 排序权重：歌名完全一致 +2、歌手完全一致 +1（用于把「同一首歌」的版本顶到前面）。 */
+function versionScore(song, name, singer) {
+  const wanted = String(name || '').trim();
+  const wantSinger = String(singer || '').trim();
+  let score = 0;
+  if (wanted && String(song.name || song.title || '').trim() === wanted) score += 2;
+  if (wantSinger && String(song.singer || '').trim() === wantSinger) score += 1;
+  return score;
+}
+
+function versionRowHtml(song, index) {
+  const tag = song.subtitle ? `<span class="tag">${esc(song.subtitle).slice(0, 8)}</span>` : '';
+  const album = song.album ? ` · ${esc(song.album)}` : '';
+  return `
+    <span class="idx">${index + 1}</span>
+    <div class="info">
+      <div class="name" title="${esc(song.name)}">${esc(song.name)}${tag}</div>
+      <div class="sub" title="${esc(song.singer || '')}${esc(album)}">${esc(song.singer || '未知歌手')}${album}</div>
+    </div>
+    <span class="duration">${fmtDuration(song.interval)}</span>
+    <div class="ops">
+      <button class="btn btn-sm btn-ghost" data-vrole="preview" data-songmid="${esc(song.songmid)}">试听</button>
+      <button class="btn btn-sm btn-ghost" data-vrole="detail" data-songmid="${esc(song.songmid)}" data-songid="${esc(String(song.songid || ''))}" data-song-name="${esc(song.name)}" data-song-singer="${esc(song.singer || '')}">详情</button>
+      <button class="btn btn-sm btn-primary" data-vrole="pick" data-songmid="${esc(song.songmid)}">下载此版本</button>
+    </div>`;
+}
+
+function renderVersionList(songs) {
+  const box = $('#version-results');
+  if (!box) return;
+  if (!songs.length) {
+    box.innerHTML = '<li class="empty">没有找到其他版本，换首歌名关键词再试试</li>';
+    return;
+  }
+  box.innerHTML = songs
+    .map((s, i) => `<li class="song-item" data-songmid="${esc(s.songmid)}">${versionRowHtml(s, i)}</li>`)
+    .join('');
+  hydrateCovers(box);
+}
+
+/** 打开「换个版本」弹窗：用歌曲名 + 歌手搜其他版本，完全匹配的排前面。 */
+async function openVersionModal(taskId) {
+  const task = (state.tasks.items || []).find((t) => t.id === taskId);
+  if (!task) return;
+  const name = task.name || task.songmid;
+  const singer = task.singer || '';
+  state.version = { taskId, items: [] };
+  $('#version-title').textContent = `换个版本 · ${name}`;
+  const hint = $('#version-hint');
+  hint.textContent = `正在搜索「${name} ${singer}」的其他版本…`;
+  $('#version-results').innerHTML = '<li class="empty">加载中…</li>';
+  showModal('modal-version');
+  try {
+    const keyword = `${name} ${singer}`.trim();
+    const data = await api('/search', { query: { keyword, type: 'song', page: 1 } });
+    const items = (data.items || []).slice();
+    // 歌名 / 歌手完全匹配的优先（其余保持接口原有顺序）
+    items.sort((a, b) => versionScore(b, name, singer) - versionScore(a, name, singer));
+    state.version.items = items;
+    hint.textContent = items.length
+      ? `共 ${items.length} 个版本（歌名 / 歌手完全匹配的排在最前），选一个替换当前版本下载：`
+      : '没有搜到其他版本，可以换个关键词再试。';
+    renderVersionList(items);
+  } catch (err) {
+    handleError(err, { silent: err.code === 'not_logged_in' });
+    hint.textContent = '搜索失败，请稍后重试。';
+    $('#version-results').innerHTML = '<li class="empty">搜索失败</li>';
+  }
+}
+
+/** 选中某个版本：按它创建一个新的下载任务（原失败任务保留，可自行删除）。 */
+async function pickVersion(song) {
+  try {
+    await createTasks([song]);
+    hideModal('modal-version');
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+function bindVersionEvents() {
+  const box = $('#version-results');
+  if (!box) return;
+  box.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('button[data-vrole]');
+    if (!btn || btn.disabled) return;
+    const mid = btn.dataset.songmid;
+    const songs = (state.version && state.version.items) || [];
+    const song = songs.find((s) => s.songmid === mid);
+    if (btn.dataset.vrole === 'preview') {
+      if (song) openPlayer(mid, songs);
+      return;
+    }
+    if (btn.dataset.vrole === 'detail') {
+      openSongDetail({
+        songmid: mid,
+        songid: Number(btn.dataset.songid) || 0,
+        name: btn.dataset.songName || '',
+        singer: btn.dataset.songSinger || '',
+      });
+      return;
+    }
+    if (btn.dataset.vrole === 'pick' && song) pickVersion(song);
+  });
 }
 
 /* ---------------- 任务批量操作：全部重试 / 全部暂停 / 全部继续 ---------------- */
@@ -2640,23 +2747,22 @@ if (themeMedia && themeMedia.addEventListener) {
   });
 }
 
-/* 推送去重：四类事件各自一个分钟数（设置键 push_dedup_<event>_minutes，0 = 不去重） */
-const PUSH_DEDUP_EVENTS = [
-  { event: 'success', key: 'push_dedup_success_minutes', fallback: 3, label: '下载成功' },
-  { event: 'dup', key: 'push_dedup_dup_minutes', fallback: 1, label: '已有同名文件' },
-  { event: 'fail', key: 'push_dedup_fail_minutes', fallback: 1, label: '下载失败' },
-  { event: 'expire', key: 'push_dedup_expire_minutes', fallback: 5, label: 'QQ音乐登录态过期' },
+/* 推送数量阈值：三类事件各自的累计条数（设置键 push_batch_<event>_count，1 = 每条即时推送） */
+const PUSH_BATCH_EVENTS = [
+  { event: 'success', key: 'push_batch_success_count', fallback: 1, label: '下载成功' },
+  { event: 'fail', key: 'push_batch_fail_count', fallback: 1, label: '下载失败' },
+  { event: 'expire', key: 'push_batch_expire_count', fallback: 1, label: 'QQ音乐登录态过期' },
 ];
-const pushDedupInput = (event) => $(`#setting-push-dedup-${event}-minutes`);
+const pushBatchInput = (event) => $(`#setting-push-batch-${event}-count`);
 
-/** 把设置里的四类去重分钟数回填到各自的输入框（缺省/异常时用兜底值）。 */
-function fillPushDedupInputs(settings) {
+/** 把设置里的三类「数量阈值」回填到各自的输入框（缺省/异常时用兜底值）。 */
+function fillPushBatchInputs(settings) {
   const s = settings || {};
-  for (const item of PUSH_DEDUP_EVENTS) {
-    const input = pushDedupInput(item.event);
+  for (const item of PUSH_BATCH_EVENTS) {
+    const input = pushBatchInput(item.event);
     if (!input) continue;
     const value = Number(s[item.key]);
-    input.value = Number.isFinite(value) && value >= 0 ? value : item.fallback;
+    input.value = Number.isFinite(value) && value >= 1 ? Math.round(value) : item.fallback;
   }
 }
 
@@ -2670,7 +2776,7 @@ function applySettings() {
   if (themeSel) themeSel.value = ['light', 'dark', 'auto'].indexOf(s.theme) >= 0 ? s.theme : 'auto';
   const paidSel = $('#setting-paid-mode');
   if (paidSel) paidSel.value = paidMode();
-  fillPushDedupInputs(s);
+  fillPushBatchInputs(s);
   applyTheme();
   renderDirOptions();
   $('#setting-interval-min').value = s.interval_min_ms || 300;
@@ -2791,12 +2897,13 @@ async function saveSettings() {
   payload.push_on_dup = !!($('#setting-push-dup') || {}).checked;
   payload.push_on_fail = !!($('#setting-push-fail') || {}).checked;
   payload.push_on_expire = !!($('#setting-push-expire') || {}).checked;
-  // 四类事件各自的推送去重分钟数（0 = 该类不去重）
-  for (const item of PUSH_DEDUP_EVENTS) {
-    const input = pushDedupInput(item.event);
+  // 推送消息类型 + 三类事件的数量阈值（累计多少条明细汇总推一次，至少 1 = 每条即时推送）
+  payload.push_type = ($('#setting-push-type') || {}).value || 'text';
+  for (const item of PUSH_BATCH_EVENTS) {
+    const input = pushBatchInput(item.event);
     const value = Number((input || {}).value);
-    if (!Number.isFinite(value) || value < 0 || value > 1440) {
-      toast(`「${item.label}」的去重分钟数需在 0 ~ 1440 之间`, 'warn');
+    if (!Number.isFinite(value) || value < 1 || value > 1000) {
+      toast(`「${item.label}」的数量阈值需在 1 ~ 1000 之间`, 'warn');
       if (input) input.focus();
       return;
     }
@@ -3153,13 +3260,16 @@ function bindEvents() {
 
   on('#task-list', 'click', (ev) => {
     const btn = ev.target.closest('button[data-role="retry"]');
-    if (btn && !btn.disabled) retryTask(btn.dataset.task);
+    if (btn && !btn.disabled) { retryTask(btn.dataset.task); return; }
+    const ver = ev.target.closest('button[data-role="version"]');
+    if (ver && !ver.disabled) openVersionModal(ver.dataset.task);
   });
 
   bindSongListEvents($('#recommend-newsongs'), state.home.sel, () => state.home.newsongs);
   bindSongListEvents($('#search-results'), state.search.sel, () => state.search.items);
   bindSongListEvents($('#fav-songs'), state.fav.sel, () => state.fav.songs);
   bindSongListEvents($('#songlist-songs'), state.songlist.sel, () => state.songlist.songs);
+  bindVersionEvents();
 
   bindBulkControls({
     container: $('#recommend-newsongs'),
@@ -3537,7 +3647,9 @@ function applyPushSettings() {
   set('#setting-push-dup', s.push_on_dup);
   set('#setting-push-fail', s.push_on_fail);
   set('#setting-push-expire', s.push_on_expire);
-  fillPushDedupInputs(s);
+  const pushTypeSel = $('#setting-push-type');
+  if (pushTypeSel) pushTypeSel.value = ['text', 'markdown', 'html'].indexOf(s.push_type) >= 0 ? s.push_type : 'text';
+  fillPushBatchInputs(s);
   const hint = $('#push-test-hint');
   if (hint) hint.textContent = s.push_base ? '' : '未配置推送服务地址';
 }

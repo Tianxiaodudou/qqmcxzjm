@@ -109,6 +109,8 @@ def is_logged_in() -> bool:
 # --------------------------------------------------------------------------
 VALID_PAID_MODES = ("gray", "hide")
 VALID_THEMES = ("light", "dark", "auto")
+# 推送消息类型：纯文本 / Markdown / HTML
+VALID_PUSH_TYPES = ("text", "markdown", "html")
 # 首页各板块的显示上限（1~100）：从设置文件读到的值统一钳到这个区间，越界/脏数据一律归位
 LIMIT_SETTING_KEYS = (
     "home_songlists_max",
@@ -142,12 +144,19 @@ def _coerce_limit(value: Any, default: int) -> int:
     return int(default)
 
 
-# 每个推送事件各自的「同类事件去重窗口」设置键（分钟，0=不去重）
-DEDUP_MINUTE_SETTING_KEYS = (
-    "push_dedup_success_minutes",   # 下载成功
-    "push_dedup_dup_minutes",       # 已有同名文件
-    "push_dedup_fail_minutes",      # 下载失败
-    "push_dedup_expire_minutes",    # 登录态过期
+# 每个推送事件各自的「数量阈值」设置键：累计多少条明细才推送一次（1 = 每条即时推送）
+BATCH_COUNT_SETTING_KEYS = (
+    "push_batch_success_count",     # 下载成功
+    "push_batch_fail_count",        # 下载失败
+    "push_batch_expire_count",      # 登录态过期
+)
+
+# 旧版「同类事件去重分钟数」设置键：已废弃，读取时直接忽略（保存设置时自然被清掉）
+LEGACY_DEDUP_SETTING_KEYS = (
+    "push_dedup_success_minutes",
+    "push_dedup_dup_minutes",
+    "push_dedup_fail_minutes",
+    "push_dedup_expire_minutes",
 )
 
 
@@ -173,11 +182,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "paid_mode": "gray",
     # 界面主题：light / dark / auto（跟随系统）
     "theme": "auto",
-    # 同类事件推送去重窗口（分钟，0=不去重）：四种事件各自独立配置
-    "push_dedup_success_minutes": 3,
-    "push_dedup_dup_minutes": 1,
-    "push_dedup_fail_minutes": 1,
-    "push_dedup_expire_minutes": 5,
+    # 推送消息类型：text / markdown / html
+    "push_type": "text",
+    # 同类事件「数量阈值」：累计多少条明细推送一次（1 = 每条即时推送，汇总成一条）
+    "push_batch_success_count": 1,
+    "push_batch_fail_count": 1,
+    "push_batch_expire_count": 1,
     "interval_min_ms": env.DEFAULT_INTERVAL_MIN_MS,
     "interval_max_ms": env.DEFAULT_INTERVAL_MAX_MS,
     "meta_full": env.DEFAULT_META_FULL,
@@ -235,9 +245,11 @@ def load_settings() -> dict[str, Any]:
             value = _coerce_limit(merged.get(key), DEFAULT_SETTINGS[key])
             merged[key] = value
         merged["daily_songlist_id"] = max(0, _coerce_int(merged.get("daily_songlist_id"), 0))
-        # 分事件推送去重：0~1440（24 小时）之外一律钳回，避免手滑填出天量把推送全吞掉
-        for key in DEDUP_MINUTE_SETTING_KEYS:
-            merged[key] = max(0, min(24 * 60, _coerce_int(merged.get(key), DEFAULT_SETTINGS[key])))
+        if merged.get("push_type") not in VALID_PUSH_TYPES:
+            merged["push_type"] = DEFAULT_SETTINGS["push_type"]
+        # 分事件数量阈值：1~1000 之外一律钳回（0/负值视为 1 = 每条即时推送）
+        for key in BATCH_COUNT_SETTING_KEYS:
+            merged[key] = max(1, min(1000, _coerce_int(merged.get(key), DEFAULT_SETTINGS[key])))
         # 目录隐藏名单：脏数据（非列表/空串/重复）一律清理
         merged["dir_hidden"] = clean_dir_list(merged.get("dir_hidden"))
         return merged

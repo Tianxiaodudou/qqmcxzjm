@@ -57,11 +57,12 @@ class SettingsRequest(BaseModel):
     push_on_fail: bool | None = None
     push_on_dup: bool | None = None
     push_on_expire: bool | None = None
-    # 同类推送事件的去重窗口（分钟，0 = 不去重）：四类事件各自独立配置
-    push_dedup_success_minutes: int | None = None
-    push_dedup_dup_minutes: int | None = None
-    push_dedup_fail_minutes: int | None = None
-    push_dedup_expire_minutes: int | None = None
+    # 推送消息类型：text / markdown / html
+    push_type: str | None = None
+    # 同类推送事件「数量阈值」：累计多少条明细推送一次（1 = 每条即时推送）
+    push_batch_success_count: int | None = None
+    push_batch_fail_count: int | None = None
+    push_batch_expire_count: int | None = None
     # 下载目录候选里要隐藏 / 恢复的目录（应用内名单，不动飞牛侧授权）
     dir_hidden_add: str | None = None
     dir_hidden_remove: str | None = None
@@ -172,13 +173,11 @@ async def create_tasks(payload: BatchRequest) -> dict[str, Any]:
             skipped.append(
                 {"songmid": songmid, "name": str(song.get("name") or songmid), "path": hit}
             )
-            notify.notify_duplicate(
-                str(song.get("name") or songmid),
-                f"下载目录已有同名文件，已跳过：{hit}",
-                songmid,
-            )
         else:
             fresh.append(song)
+    # 同名文件一次性汇总推送（不再每首单独推一条）
+    if skipped:
+        notify.notify_duplicates(skipped)
     # 音质无需指定：下载时自动选用登录账号可用的最高音质
     created = manager.create_batch(fresh)
     return {
@@ -371,15 +370,20 @@ async def update_settings(payload: SettingsRequest, request: Request) -> dict[st
         settings["push_base"] = base
     if payload.push_token is not None:
         settings["push_token"] = payload.push_token.strip()
+    if payload.push_type is not None:
+        kind = str(payload.push_type).strip().lower()
+        if kind not in store.VALID_PUSH_TYPES:
+            raise errors.BadRequestError("推送消息类型只能是 text / markdown / html")
+        settings["push_type"] = kind
     for key in ("push_on_success", "push_on_fail", "push_on_dup", "push_on_expire"):
         value = getattr(payload, key)
         if value is not None:
             settings[key] = bool(value)
-    for key in store.DEDUP_MINUTE_SETTING_KEYS:
+    for key in store.BATCH_COUNT_SETTING_KEYS:
         value = getattr(payload, key)
         if value is not None:
-            # 0 表示不去重；上限 24 小时，避免手滑填出天文数字把推送全吞掉
-            settings[key] = max(0, min(24 * 60, int(value)))
+            # 累计多少条明细推送一次：至少 1（每条即时推送），上限 1000
+            settings[key] = max(1, min(1000, int(value)))
     if payload.dir_hidden_add is not None:
         target = str(payload.dir_hidden_add).strip()
         if not target:
