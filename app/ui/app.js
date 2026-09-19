@@ -581,7 +581,7 @@ function selectAll(sel, songs, checked) {
 
 const TASK_BATCH_MAX = 100;   // 与后端 MAX_BATCH 对齐：单次最多创建 100 个任务
 
-async function createTasks(songs, { silent = false } = {}) {
+async function createTasks(songs, { silent = false, replaceId = '' } = {}) {
   const wanted = (Array.isArray(songs) ? songs : []).filter((s) => s && s.songmid);
   const blocked = wanted.filter((s) => lockedForUi(s));
   if (blocked.length) {
@@ -610,7 +610,7 @@ async function createTasks(songs, { silent = false } = {}) {
         if (payload.length > TASK_BATCH_MAX) {
           toast(`正在创建下载任务 ${Math.min(i + chunk.length, payload.length)} / ${payload.length}…`, 'info', 1600);
         }
-        const data = await api('/tasks', { method: 'POST', body: { songs: chunk } });
+        const data = await api('/tasks', { method: 'POST', body: { songs: chunk, replace_task_id: replaceId } });
         created.push(...(data.created || []));
         skipped.push(...(data.skipped || []));
       }
@@ -622,7 +622,7 @@ async function createTasks(songs, { silent = false } = {}) {
       toast(`已有该音乐文件：${names}${more}`, 'warn', Math.min(9000, 3000 + skipped.length * 300));
     }
     if (created.length) {
-      if (!silent) toast(`已创建 ${created.length} 个下载任务`, 'success');
+      if (!silent) toast(replaceId ? '已用新版本替换该任务' : `已创建 ${created.length} 个下载任务`, 'success');
     } else if (!skipped.length && !silent) {
       toast('未创建任何下载任务', 'warn');
     }
@@ -2467,10 +2467,11 @@ async function openVersionModal(taskId) {
   }
 }
 
-/** 选中某个版本：按它创建一个新的下载任务（原失败任务保留，可自行删除）。 */
+/** 选中某个版本：用该版本替换原来的失败任务（新建任务，并把被替换的旧卡片移除）。 */
 async function pickVersion(song) {
+  const taskId = (state.version && state.version.taskId) || '';
   try {
-    await createTasks([song]);
+    await createTasks([song], { replaceId: taskId });
     hideModal('modal-version');
   } catch (err) {
     handleError(err);

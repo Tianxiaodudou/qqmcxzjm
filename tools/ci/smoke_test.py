@@ -271,6 +271,25 @@ with TestClient(main.app) as client:
 
     check("task-retire-keeps-unfinished", _retire_keeps_unfinished_case)
 
+    # v1.4.1：「换个版本」必须真的替换旧任务 —— 旧（失败）卡片被移除，不残留两张卡
+    def _task_replace_case():
+        from web.downloader import DownloadManager
+
+        mgr = DownloadManager(None)
+        old = mgr.submit({'songmid': 'ci004', 'name': 'CI-old', 'singer': 'x'})
+        old.status = 'failed'
+        mgr._save()
+        assert mgr.remove_task(old.id) is True
+        assert [t['songmid'] for t in mgr.list_tasks()] == [], mgr.list_tasks()
+        assert mgr.remove_task('ci-missing') is False
+        # 正在下载（未暂停）的任务不许移除，避免工作线程写盘时目录被清空
+        live = mgr.submit({'songmid': 'ci005', 'name': 'CI-live', 'singer': 'x'})
+        assert mgr.remove_task(live.id) is False
+        assert [t['songmid'] for t in mgr.list_tasks()] == ['ci005'], mgr.list_tasks()
+        return 'replace-ok'
+
+    check("task-replace-removes-old", _task_replace_case)
+
 
 
     # v1.4.0：推送聚合从「分钟数」改为「数量阈值」（每 N 条明细汇总推一次，1~1000）；

@@ -414,6 +414,23 @@ class DownloadManager:
         self._save()
         return removed
 
+    def remove_task(self, task_id: str) -> bool:
+        """移除单个任务（连同它的中间文件与续传现场）。
+
+        「换个版本」用它把被替换掉的旧（失败）卡片清掉，避免新旧两张卡同时留在列表里。
+        正在下载且未暂停的任务不允许移除：工作线程还在往 work 目录写数据，此时清目录会打断它。
+        """
+        task = self._tasks.get(task_id)
+        if not task:
+            return False
+        if task.status == DOWNLOADING and not task.paused:
+            return False
+        self._tasks.pop(task_id, None)
+        self._order = [tid for tid in self._order if tid != task_id]
+        self._cleanup_work(task_id)
+        self._save()
+        return True
+
     def _retire(self, task_id: str) -> None:
         """任务成功后退出任务列表：记录已在「下载历史」里，列表不再保留卡片。"""
         task = self._tasks.get(task_id)

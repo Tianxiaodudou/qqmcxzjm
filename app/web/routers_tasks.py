@@ -33,6 +33,8 @@ class SongRef(BaseModel):
 
 class BatchRequest(BaseModel):
     songs: list[SongRef] = Field(default_factory=list)
+    # 「换个版本」：新任务建好后，把被替换掉的旧任务卡片一并移除（避免新旧两张卡都留着）
+    replace_task_id: str = ""
 
 
 class SettingsRequest(BaseModel):
@@ -180,10 +182,16 @@ async def create_tasks(payload: BatchRequest) -> dict[str, Any]:
         notify.notify_duplicates(skipped)
     # 音质无需指定：下载时自动选用登录账号可用的最高音质
     created = manager.create_batch(fresh)
+    # 「换个版本」：新版本任务已经建好，把被替换的旧（失败）任务卡片移除
+    replaced = False
+    replace_id = str(payload.replace_task_id or "").strip()
+    if replace_id:
+        replaced = manager.remove_task(replace_id)
     return {
         "ok": True,
         "created": [t.to_public() for t in created],
         "skipped": skipped,
+        "replaced": replaced,
         "download_dir": str(target_dir),
     }
 
