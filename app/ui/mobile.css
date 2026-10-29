@@ -608,6 +608,29 @@
   .m-text { flex: 1; min-width: 0; }
   .m-row .chev { color: var(--text-mute); font-size: 19px; line-height: 1; }
 
+
+  /* ---------------- 播放队列（手机端） ---------------- */
+  #modal-queue { z-index: 75; }
+  #modal-queue .modal-card { height: 88vh; height: 88dvh; max-height: 92dvh; }
+  #modal-queue .modal-body { flex: 1; min-height: 0; padding: 4px 12px calc(14px + env(safe-area-inset-bottom)); }
+  .queue-toolbar { padding: 8px 12px; gap: 8px; }
+  .queue-toolbar #queue-mode { min-height: 36px; padding: 6px 10px; font-size: 13px; }
+  .queue-item { padding: 10px 6px; gap: 10px; }
+  .queue-item:active { background: var(--bg-hover); }
+  .q-cover { width: 48px; height: 48px; flex-basis: 48px; border-radius: 10px; }
+  .q-name { font-size: 14.5px; }
+  .q-sub { font-size: 12px; }
+  .q-del { min-width: 36px; min-height: 36px; font-size: 13px; }
+
+  /* 歌曲行里的「加入播放列表」图标 */
+  .song-item .ops [data-role="queue"]::before { content: "＋"; font-size: 18px; }
+  .song-item.locked .ops [data-role="queue"] { opacity: .35; }
+
+  /* 播放器头部：标题可截断，模式 / 队列 / 关闭按钮不被挤压 */
+  #modal-player .modal-head h3 { flex: 1; min-width: 0; margin-right: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #modal-player .pw-tools { gap: 0; flex: 0 0 auto; }
+  #modal-player .pw-tools .icon-btn { width: 40px; height: 40px; font-size: 17px; }
+
   /* ---------------- 弹窗 → 底部上滑面板 ---------------- */
   .modal {
     padding: 0;
@@ -755,16 +778,18 @@
 
   .pw-bar {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: 40px 46px 40px minmax(0, 1fr) 34px;
     grid-template-areas:
-      "toggle time more"
-      "seek seek seek";
-    gap: 10px 12px;
+      "seek seek seek seek seek"
+      "prev toggle next time more"
+      "mute vol vol vol vol";
+    gap: 8px;
     padding: 12px;
     border-radius: 16px;
   }
 
   .pw-seek { grid-area: seek; width: 100%; height: 6px; }
+  #pw-prev { grid-area: prev; width: 40px; height: 40px; justify-self: center; }
   #pw-toggle {
     grid-area: toggle;
     width: 46px; height: 46px;
@@ -773,10 +798,21 @@
     background: var(--primary);
     color: #05261a;
     font-size: 16px;
+    justify-self: center;
   }
-  .pw-time { grid-area: time; justify-self: center; align-self: center; font-size: 12px; }
-  .pw-more-wrap { grid-area: more; justify-self: end; }
-  #pw-mute, .pw-vol { display: none; }
+  #pw-next { grid-area: next; width: 40px; height: 40px; justify-self: center; }
+  .pw-time { grid-area: time; justify-self: end; align-self: center; font-size: 11.5px; }
+  .pw-more-wrap { grid-area: more; justify-self: end; align-self: center; }
+  #pw-mute {
+    grid-area: mute;
+    display: inline-flex;
+    width: 34px; height: 34px;
+    align-self: center;
+    justify-self: start;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .pw-vol { grid-area: vol; display: block; width: 100%; align-self: center; }
 
   .pw-range::-webkit-slider-thumb { width: 18px; height: 18px; }
   .pw-range::-moz-range-thumb { width: 18px; height: 18px; }

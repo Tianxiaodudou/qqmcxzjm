@@ -40,9 +40,14 @@ const state = {
   logs: { items: [], counts: {}, records: [], loadedAt: 0, tab: 'logs', level: '' },
   accounts: { items: [], current: '' },
   qualities: [],
+  playlist: { items: [], mode: 'loop', loaded: false },
+  play: { context: [], index: -1, source: 'list', songmid: '' },
   login: { mode: '', sessionId: '', busy: false, timer: null },
   player: { songmid: '', lyrics: [], index: -1, timer: null, ready: false, song: null },
 };
+
+/* 歌曲列表 DOM → 歌曲数组：点歌曲信息区播放时能带上整张列表作为播放上下文 */
+const songListRegistry = new WeakMap();
 
 /* ---------------- 基础工具 ---------------- */
 function esc(text) {
@@ -442,6 +447,7 @@ function songRowHtml(song, index, checked) {
     </div>
     <span class="duration">${fmtDuration(song.interval)}</span>
     <div class="ops">
+      <button class="btn btn-sm btn-ghost" data-role="queue" data-songmid="${esc(song.songmid)}" title="加入播放列表" aria-label="加入播放列表">加入</button>
       <button class="btn btn-sm btn-ghost" data-role="detail" data-songmid="${esc(song.songmid)}" data-songid="${esc(String(song.songid || ''))}" data-song-name="${esc(song.name)}" data-song-singer="${esc(song.singer || '')}">详情</button>
       <button class="btn btn-sm btn-ghost" disabled>试听</button>
       <button class="btn btn-sm btn-primary" disabled>下载</button>
@@ -456,6 +462,7 @@ function songRowHtml(song, index, checked) {
     </div>
     <span class="duration">${fmtDuration(song.interval)}</span>
     <div class="ops">
+      <button class="btn btn-sm btn-ghost" data-role="queue" data-songmid="${esc(song.songmid)}" title="加入播放列表" aria-label="加入播放列表">加入</button>
       <button class="btn btn-sm btn-ghost" data-role="detail" data-songmid="${esc(song.songmid)}" data-songid="${esc(String(song.songid || ''))}" data-song-name="${esc(song.name)}" data-song-singer="${esc(song.singer || '')}">详情</button>
       <button class="btn btn-sm btn-ghost" data-role="preview" data-songmid="${esc(song.songmid)}">试听</button>
       <button class="btn btn-sm btn-primary" data-role="download" data-songmid="${esc(song.songmid)}">下载</button>
@@ -474,6 +481,8 @@ function renderSongList(container, songs, sel, emptyText = '暂无歌曲') {
   container.innerHTML = list
     .map((song, i) => `<li class="song-item${sel.has(song.songmid) ? ' selected' : ''}${lockedForUi(song) ? ' locked' : ''}" data-songmid="${esc(song.songmid)}">${songRowHtml(song, i, sel.has(song.songmid))}</li>`)
     .join('');
+  songListRegistry.set(container, list);
+  syncPlayingHighlight(container);
 }
 
 function renderSongSkeleton(container, rows = 6) {
@@ -984,6 +993,7 @@ function blockBulkHtml(key) {
       <span class="muted" data-block-count="${esc(key)}">未选择</span>
       <span class="spacer"></span>
       <button class="btn btn-sm btn-ghost" data-role="block-invert" data-block="${esc(key)}">反选</button>
+      <button class="btn btn-sm btn-ghost" data-role="block-queue" data-block="${esc(key)}">全部加入</button>
       <button class="btn btn-sm btn-primary" data-role="block-download" data-block="${esc(key)}">下载选中</button>
     </div>`;
 }
@@ -1005,6 +1015,8 @@ function renderBlockSongs(mount, songs, key, emptyText = '暂无歌曲') {
     .join('');
   mount.innerHTML = '';
   mount.appendChild(ul);
+  songListRegistry.set(ul, list);
+  syncPlayingHighlight(ul);
 }
 
 /** 重新同步某个板块的勾选样式与计数 */
@@ -1390,6 +1402,8 @@ function onExtraHomeClick(ev) {
     });
     return;
   }
+  const bulkQueue = inPanel('[data-role="block-queue"]');
+  if (bulkQueue) { addSongsToQueue(visibleSongs(extraState(bulkQueue.dataset.block).songs || [])); return; }
   const bulkDownload = inPanel('[data-role="block-download"]');
   if (bulkDownload) { downloadBlockSelection(bulkDownload.dataset.block); return; }
   const invert = inPanel('[data-role="block-invert"]');
@@ -1401,7 +1415,8 @@ function onExtraHomeClick(ev) {
     return;
   }
   const row = inPanel('.song-item');
-  if (row && !ev.target.closest('button, label, input')) {
+  // 点歌名/歌手区域交给手机端「点一下即播放」处理；这里只处理空白区域的多选
+  if (row && !ev.target.closest('button, label, input, .info')) {
     const key = row.closest('ul.song-list').dataset.block;
     toggleBlockSong(key, row.dataset.songmid, !extraState(key).sel.has(row.dataset.songmid));
   }
@@ -2218,15 +2233,40 @@ const Player = (() => {
     resetControls();
   }
 
-  return { open, update, close, bind, hint, setCover };
+  /* 单曲循环：音频播完后从头再来，不重新请求直链 */
+  function replay() {
+    const a = audio();
+    if (!a) return;
+    try { a.currentTime = 0; } catch (e) { /* 忽略 */ }
+    const p = a.play();
+    if (p && p.catch) p.catch(() => {});
+  }
+
+  return { open, update, close, bind, hint, setCover, replay };
 })();
 
 /* 在线试听：QQ 音乐直链 */
-async function openPlayer(songmid, songList = []) {
+async function openPlayer(songmid, songList = [], opts = {}) {
   if (!songmid) return;
   const cached = (songList || []).find((s) => s.songmid === songmid) || {};
   state.player.songmid = songmid;
   state.player.list = songList || [];
+  /* 播放上下文：上一首 / 下一首 / 播放模式都基于它 */
+  const context = (Array.isArray(songList) ? songList : []).filter((s) => s && s.songmid && !isLocked(s));
+  if (!context.length) {
+    context.push({
+      songmid, songid: cached.songid || 0, name: cached.name || '', singer: cached.singer || '',
+      album: cached.album || '', interval: cached.interval || 0, album_pmid: cached.album_pmid || '',
+    });
+  }
+  state.play = {
+    context,
+    index: context.findIndex((s) => s.songmid === songmid),
+    source: opts.source === 'queue' ? 'queue' : (opts.source || 'list'),
+    songmid,
+  };
+  updatePlayerNav();
+  syncPlayingHighlight();
   /* 弹窗「⋮ → 下载」用：先放列表里的信息，拿到详情后再补全 */
   state.player.song = {
     songmid,
@@ -2300,6 +2340,9 @@ async function playLocal(songmid) {
     const merged = mergeTranslation(parseLrc(data.lyric), parseLrc(data.translation));
     state.player.songmid = songmid;
     state.player.lyrics = merged;
+    state.play = { context: [], index: -1, source: 'local', songmid };
+    updatePlayerNav();
+    syncPlayingHighlight();
     state.player.song = {
       songmid,
       name: data.name || data.title || '',
@@ -2322,7 +2365,327 @@ async function playLocal(songmid) {
 
 function closePlayer() {
   Player.close();
+  state.play.songmid = '';
+  state.play.index = -1;
+  updatePlayerNav();
+  syncPlayingHighlight();
 }
+
+/* ==========================================================
+   播放列表与播放控制（独立播放器）
+   ----------------------------------------------------------
+   - 歌曲列表里的「加入」把单曲加进队列，歌单/分类可「全部加入」
+   - 队列持久化在 localStorage，刷新页面不丢
+   - 播放模式：顺序 / 列表循环 / 单曲循环 / 随机
+   - 上一首、下一首、自动续播、队列内高亮都基于 state.play.context
+   ========================================================== */
+const QUEUE_KEY = 'qqmd.queue.v1';
+const PLAY_MODES = [
+  { key: 'order', icon: '→', label: '顺序播放' },
+  { key: 'loop', icon: '↻', label: '列表循环' },
+  { key: 'single', icon: '↻1', label: '单曲循环' },
+  { key: 'shuffle', icon: '⇄', label: '随机播放' },
+];
+
+function queueItems() { return state.playlist.items; }
+
+/** 只保留播放队列需要的字段，避免把整条接口响应塞进 localStorage */
+function queueSongOf(song) {
+  return {
+    songmid: song.songmid,
+    songid: song.songid || 0,
+    name: song.name || '',
+    singer: song.singer || '',
+    album: song.album || '',
+    interval: Number(song.interval) || 0,
+    album_pmid: song.album_pmid || '',
+  };
+}
+
+function saveQueue() {
+  try {
+    localStorage.setItem(QUEUE_KEY, JSON.stringify({ items: queueItems(), mode: state.playlist.mode }));
+  } catch (e) { /* 隐私模式 / 空间不足：忽略 */ }
+}
+
+function loadQueue() {
+  let raw = null;
+  try { raw = JSON.parse(localStorage.getItem(QUEUE_KEY) || 'null'); } catch (e) { raw = null; }
+  if (raw && Array.isArray(raw.items)) {
+    const seen = new Set();
+    state.playlist.items = raw.items
+      .filter(function (song) {
+        if (!song || !song.songmid || seen.has(song.songmid)) return false;
+        seen.add(song.songmid);
+        return true;
+      })
+      .map(queueSongOf);
+    if (PLAY_MODES.some(function (m) { return m.key === raw.mode; })) state.playlist.mode = raw.mode;
+  }
+  state.playlist.loaded = true;
+  syncQueueBadges();
+  syncModeButtons();
+}
+
+function syncQueueBadges() {
+  const n = queueItems().length;
+  const menuCount = $('#m-queue-count');
+  if (menuCount) menuCount.textContent = n ? String(n) : '';
+  const playerCount = $('#pw-queue-count');
+  if (playerCount) playerCount.textContent = n ? String(n) : '';
+  const queueBtn = $('#pw-queue');
+  if (queueBtn) queueBtn.title = '播放列表（' + n + ' 首）';
+}
+
+/** 加入队列：自动去重，付费内容直接跳过 */
+function addSongsToQueue(songs) {
+  const list = (Array.isArray(songs) ? songs : []).filter(function (s) { return s && s.songmid && !isLocked(s); });
+  if (!list.length) { toast('没有可加入播放列表的歌曲', 'warn'); return 0; }
+  const seen = new Set(queueItems().map(function (s) { return s.songmid; }));
+  let added = 0;
+  list.forEach(function (song) {
+    if (seen.has(song.songmid)) return;
+    seen.add(song.songmid);
+    queueItems().push(queueSongOf(song));
+    added += 1;
+  });
+  if (!added) { toast('这些歌曲已经在播放列表里了', 'info'); return 0; }
+  saveQueue();
+  syncQueueBadges();
+  if (isQueueOpen()) renderQueue();
+  queueAddToast(added);
+  return added;
+}
+
+/* 连续点「加入」时把提示合并成一条（例如三首快速加入 → 「已添加 3 首」），避免刷屏 */
+let queueToastTimer = null;
+let queueToastCount = 0;
+function queueAddToast(n) {
+  queueToastCount += n;
+  if (queueToastTimer) clearTimeout(queueToastTimer);
+  queueToastTimer = setTimeout(function () {
+    const count = queueToastCount;
+    queueToastCount = 0;
+    queueToastTimer = null;
+    toast('已添加 ' + count + ' 首到播放列表', 'success');
+  }, 420);
+}
+
+/** 歌曲行「加入」按钮：优先从列表注册表取完整信息，取不到再用行内文字兜底 */
+function songForQueueButton(btn) {
+  const mid = btn.dataset.songmid || '';
+  const ul = btn.closest('ul.song-list');
+  const list = (ul && songListRegistry.get(ul)) || [];
+  const hit = list.find(function (s) { return s.songmid === mid; });
+  if (hit) return hit;
+  const row = btn.closest('.song-item');
+  const nameEl = row && row.querySelector('.name');
+  const subEl = row && row.querySelector('.sub');
+  return {
+    songmid: mid,
+    name: nameEl ? String(nameEl.textContent || '').replace(/\s*付费\s*$/, '').trim() : mid,
+    singer: subEl ? String(subEl.textContent || '').split(' · ')[0] : '',
+  };
+}
+
+function isQueueOpen() {
+  const el = $('#modal-queue');
+  return !!el && !el.classList.contains('hidden');
+}
+
+function openQueue() {
+  renderQueue();
+  showModal('modal-queue');
+}
+
+function syncPlayingHighlight(root) {
+  const mid = state.play.songmid || '';
+  const scope = root || document;
+  $$('.song-item[data-songmid]', scope).forEach(function (el) {
+    el.classList.toggle('playing', !!mid && el.dataset.songmid === mid);
+  });
+  $$('.queue-item[data-songmid]', scope).forEach(function (el) {
+    el.classList.toggle('playing', !!mid && el.dataset.songmid === mid);
+  });
+}
+
+function renderQueue() {
+  const box = $('#queue-list');
+  if (!box) return;
+  const items = queueItems();
+  syncQueueBadges();
+  const countEl = $('#queue-count');
+  if (countEl) countEl.textContent = items.length ? items.length + ' 首' : '';
+  const hintEl = $('#queue-hint');
+  if (hintEl) hintEl.textContent = items.length ? '点击歌曲播放 · 点右侧 ✕ 移除' : '还没有歌曲，去列表里点「加入」';
+  if (!items.length) {
+    box.innerHTML = '<li class="queue-empty">播放列表是空的<br><span class="muted">在歌曲右侧点「加入」，或把整张歌单一起加进来</span></li>';
+    return;
+  }
+  box.innerHTML = items.map(function (song, i) {
+    const cover = song.album_pmid ? coverUrl(song.album_pmid, 300) : '';
+    const playing = song.songmid === state.play.songmid;
+    const dur = song.interval ? ' · ' + fmtDuration(song.interval) : '';
+    return '<li class="queue-item' + (playing ? ' playing' : '') + '" data-index="' + i + '" data-songmid="' + esc(song.songmid) + '">' +
+      '<span class="q-idx">' + (i + 1) + '</span>' +
+      '<span class="q-eq"><i></i><i></i><i></i></span>' +
+      '<span class="q-cover"' + (cover ? ' data-cover="' + esc(cover) + '"' : '') + '></span>' +
+      '<span class="q-info"><span class="q-name">' + esc(song.name || song.songmid) + '</span>' +
+      '<span class="q-sub">' + esc(song.singer || '未知歌手') + dur + '</span></span>' +
+      '<button class="icon-btn q-del" type="button" data-role="queue-remove" data-songmid="' + esc(song.songmid) + '" title="移除">✕</button>' +
+      '</li>';
+  }).join('');
+  hydrateCovers(box);
+  syncPlayingHighlight();
+}
+
+function currentMode() {
+  return PLAY_MODES.find(function (m) { return m.key === state.playlist.mode; }) || PLAY_MODES[1];
+}
+
+function syncModeButtons() {
+  const mode = currentMode();
+  const btn = $('#pw-mode');
+  if (btn) { btn.textContent = mode.icon; btn.title = '播放模式：' + mode.label; }
+  const icon = $('#queue-mode-icon');
+  if (icon) icon.textContent = mode.icon;
+  const label = $('#queue-mode-label');
+  if (label) label.textContent = mode.label;
+}
+
+function cycleMode() {
+  const i = PLAY_MODES.findIndex(function (m) { return m.key === state.playlist.mode; });
+  state.playlist.mode = PLAY_MODES[(i + 1) % PLAY_MODES.length].key;
+  saveQueue();
+  syncModeButtons();
+  toast('播放模式：' + currentMode().label, 'info', 1600);
+}
+
+function updatePlayerNav() {
+  const has = (state.play.context || []).length > 0;
+  ['#pw-prev', '#pw-next'].forEach(function (sel) {
+    const btn = $(sel);
+    if (btn) btn.disabled = !has;
+  });
+}
+
+/** 计算上/下一首：顺序到头返回 -1（自动播放时停下），单曲循环只影响自动续播 */
+function stepIndex(dir, auto) {
+  const ctx = state.play.context || [];
+  const len = ctx.length;
+  if (!len) return -1;
+  let cur = ctx.findIndex(function (s) { return s.songmid === state.play.songmid; });
+  if (cur < 0) cur = 0;
+  const mode = state.playlist.mode;
+  if (auto && mode === 'single') return cur;
+  if (mode === 'shuffle') {
+    if (len === 1) return 0;
+    let n = cur;
+    while (n === cur) n = Math.floor(Math.random() * len);
+    return n;
+  }
+  if (mode === 'loop' || mode === 'single') return (cur + dir + len) % len;
+  const next = cur + dir;
+  if (next < 0) return 0;
+  return next < len ? next : -1;
+}
+
+function playerStep(dir, auto) {
+  const ctx = state.play.context || [];
+  if (!ctx.length) {
+    if (!auto) toast('还没有可播放的歌曲', 'warn');
+    return;
+  }
+  const idx = stepIndex(dir, !!auto);
+  if (idx < 0) {
+    if (!auto) toast('已经是最后一首了', 'info');
+    return;
+  }
+  if (auto && state.playlist.mode === 'single') { Player.replay(); return; }
+  const song = ctx[idx];
+  if (!song) return;
+  openPlayer(song.songmid, ctx, { source: state.play.source });
+}
+
+function playFromQueue(index) {
+  const items = queueItems();
+  const song = items[index];
+  if (!song) return;
+  hideModal('modal-queue');
+  openPlayer(song.songmid, items, { source: 'queue' });
+}
+
+function removeFromQueue(songmid) {
+  const idx = queueItems().findIndex(function (s) { return s.songmid === songmid; });
+  if (idx < 0) return;
+  queueItems().splice(idx, 1);
+  if (state.play.source === 'queue') {
+    state.play.context = queueItems();
+    if (state.play.index > idx) state.play.index -= 1;
+    if (state.play.songmid === songmid) state.play.index = -1;
+  }
+  saveQueue();
+  syncQueueBadges();
+  renderQueue();
+  syncPlayingHighlight();
+  toast('已移出播放列表', 'info', 1800);
+}
+
+function clearQueue() {
+  if (!queueItems().length) { toast('播放列表已经是空的', 'info'); return; }
+  if (!window.confirm('清空播放列表？正在播放的歌曲不会被停止。')) return;
+  state.playlist.items = [];
+  if (state.play.source === 'queue') {
+    state.play.context = [];
+    state.play.index = -1;
+  }
+  saveQueue();
+  syncQueueBadges();
+  renderQueue();
+  syncPlayingHighlight();
+  toast('播放列表已清空', 'success');
+}
+
+/** 一首歌播完：单曲循环原地重播，其它模式按 stepIndex 续播 */
+function onTrackEnded() {
+  const ctx = state.play.context || [];
+  if (!ctx.length) return;
+  if (state.playlist.mode === 'single') { Player.replay(); return; }
+  playerStep(1, true);
+}
+
+function bindQueueControls() {
+  on('#pw-queue', 'click', openQueue);
+  on('#pw-mode', 'click', cycleMode);
+  on('#queue-mode', 'click', cycleMode);
+  on('#queue-clear', 'click', clearQueue);
+  on('#m-open-queue', 'click', openQueue);
+  on('#pw-prev', 'click', function () { playerStep(-1, false); });
+  on('#pw-next', 'click', function () { playerStep(1, false); });
+  on('#queue-list', 'click', function (ev) {
+    const del = ev.target.closest('[data-role="queue-remove"]');
+    if (del) { ev.stopPropagation(); removeFromQueue(del.dataset.songmid); return; }
+    const item = ev.target.closest('.queue-item');
+    if (item) playFromQueue(Number(item.dataset.index) || 0);
+  });
+  const audio = $('#pw-audio');
+  if (audio) audio.addEventListener('ended', onTrackEnded);
+  // 全局委托：「加入」按钮出现在所有歌曲列表里（含动态生成的板块），只注册一次
+  document.addEventListener('click', function (ev) {
+    const btn = ev.target.closest('[data-role="queue"]');
+    if (!btn || btn.disabled) return;
+    if (btn.closest('.song-item.locked')) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      toast('付费内容需在 QQ音乐购买后才能加入播放列表', 'warn');
+      return;
+    }
+    ev.preventDefault();
+    ev.stopPropagation();
+    addSongsToQueue([songForQueueButton(btn)]);
+  }, true);
+}
+
 
 /* ---------------- 下载任务 ---------------- */
 const STATE_LABEL = { pending: '等待中', downloading: '下载中', done: '已完成', failed: '失败' };
@@ -3130,7 +3493,7 @@ function rerenderWithSelection(container, songs, sel) {
  * 批量栏绑定：全选 / 反选作用于「整张列表」——点下去先把尚未加载完的分页全部取回
  * （loadAll / applyAll 由各列表提供；不提供说明该列表本身已是完整的一屏列表）。
  */
-function bindBulkControls({ container, songs, sel, allSel, invertBtn, downloadBtn, bulkBar, countEl, loadAll, applyAll, hasMore, label = '列表' }) {
+function bindBulkControls({ container, songs, sel, allSel, invertBtn, downloadBtn, queueBtn, bulkBar, countEl, loadAll, applyAll, hasMore, label = '列表' }) {
   let busy = false;
 
   const sync = () => updateBulkBar(allSel, invertBtn, countEl, sel, songs());
@@ -3138,7 +3501,7 @@ function bindBulkControls({ container, songs, sel, allSel, invertBtn, downloadBt
   const setBusy = (on) => {
     busy = on;
     if (bulkBar) bulkBar.classList.toggle('busy', on);
-    [allSel, invertBtn, downloadBtn].forEach((el) => {
+    [allSel, invertBtn, downloadBtn, queueBtn].forEach((el) => {
       if (el) el.disabled = on;
     });
     if (countEl) {
@@ -3219,6 +3582,12 @@ function bindBulkControls({ container, songs, sel, allSel, invertBtn, downloadBt
       }
     });
   }
+  if (queueBtn) {
+    queueBtn.addEventListener('click', async () => {
+      if (!(await ensureWholeList())) return;
+      addSongsToQueue(visibleSongs(songs()));
+    });
+  }
 }
 
 function bindModals() {
@@ -3281,6 +3650,7 @@ function bindEvents() {
   on('#m-open-history', 'click', () => switchView('history'));
   on('#m-open-logs', 'click', () => switchView('logs'));
   on('#m-open-history-tasks', 'click', () => switchView('history'));
+  bindQueueControls();
   const mobileMq = window.matchMedia('(max-width: 900px)');
   if (mobileMq.addEventListener) mobileMq.addEventListener('change', syncMobileShell);
   else if (mobileMq.addListener) mobileMq.addListener(syncMobileShell);
@@ -3380,6 +3750,7 @@ function bindEvents() {
     allSel: $('#newsongs-all'),
     invertBtn: $('#newsongs-invert'),
     downloadBtn: $('#newsongs-download'),
+    queueBtn: $('#newsongs-queue'),
     countEl: $('#newsongs-count'),
     label: '推荐列表',
     bulkBar: $('#newsongs-bulk'),
@@ -3394,6 +3765,7 @@ function bindEvents() {
     allSel: $('#guess-all'),
     invertBtn: $('#guess-invert'),
     downloadBtn: $('#guess-download'),
+    queueBtn: $('#guess-queue'),
     countEl: $('#guess-count'),
     label: '猜你喜欢',
     bulkBar: $('#guess-bulk'),
@@ -3405,6 +3777,7 @@ function bindEvents() {
     allSel: $('#radar-all'),
     invertBtn: $('#radar-invert'),
     downloadBtn: $('#radar-download'),
+    queueBtn: $('#radar-queue'),
     countEl: $('#radar-count'),
     label: '每日推荐',
     bulkBar: $('#radar-bulk'),
@@ -3416,6 +3789,7 @@ function bindEvents() {
     allSel: $('#search-all'),
     invertBtn: $('#search-invert'),
     downloadBtn: $('#search-download'),
+    queueBtn: $('#search-queue'),
     countEl: $('#search-count'),
     hasMore: () => state.search.hasMore,
     loadAll: loadAllSearch,
@@ -3430,6 +3804,7 @@ function bindEvents() {
     allSel: $('#fav-all'),
     invertBtn: $('#fav-invert'),
     downloadBtn: $('#fav-download'),
+    queueBtn: $('#fav-queue'),
     countEl: $('#fav-count'),
     hasMore: () => state.fav.hasMore,
     loadAll: loadAllFav,
@@ -3444,6 +3819,7 @@ function bindEvents() {
     allSel: $('#songlist-all'),
     invertBtn: $('#songlist-invert'),
     downloadBtn: $('#songlist-download'),
+    queueBtn: $('#songlist-queue'),
     countEl: $('#songlist-sel-count'),
     hasMore: () => state.songlist.hasMore,
     loadAll: loadAllSonglist,
@@ -3481,6 +3857,7 @@ async function init() {
   syncMobileShell();
   bindModals();
   bindEvents();
+  loadQueue();
   bindAbout();
   Player.bind();
   initSdk();
