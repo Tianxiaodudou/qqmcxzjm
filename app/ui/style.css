@@ -1,4 +1,5 @@
 :root {
+  color-scheme: dark;
   --bg: #0f1115;
   --bg-soft: #161922;
   --bg-card: #1b1f2a;
@@ -132,7 +133,8 @@ body {
   font-weight: 700;
 }
 
-.account { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
+.account-host { margin-top: auto; display: flex; flex-direction: column; }
+.account { display: flex; flex-direction: column; gap: 8px; }
 
 .account-status {
   display: flex; align-items: center; gap: 7px;
@@ -870,8 +872,8 @@ body.has-player { overflow: hidden; }
 .settings-card[open] > summary.card-head::after { transform: rotate(180deg); }
 .settings-card[open] > summary.card-head { margin-bottom: 14px; }
 
-.account-card { display: flex; flex-direction: column; gap: 10px; }
-.acc-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.account-card { display: flex; flex-direction: row; align-items: center; gap: 10px; }
+.acc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
 .acc-avatar {
   width: 40px; height: 40px; flex: 0 0 40px;
   border-radius: 50%;
@@ -930,6 +932,7 @@ body.has-player { overflow: hidden; }
    主题：浅色（html[data-theme="light"]）
    ========================================================== */
 html[data-theme="light"] {
+  color-scheme: light;
   --bg: #f2f4f7;
   --bg-soft: #e9edf3;
   --bg-card: #ffffff;

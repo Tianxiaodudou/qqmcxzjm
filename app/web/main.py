@@ -164,7 +164,7 @@ def _render_index() -> str:
     资源 URL 带版本号后，升级必然取到新 css/js，不再依赖用户手动强刷。
     """
     html = _INDEX_HTML.read_text(encoding="utf-8")
-    for asset in ("static/style.css", "static/app.js"):
+    for asset in ("static/style.css", "static/mobile.css", "static/app.js"):
         html = html.replace(f'"{asset}"', f'"{asset}{_ASSET_STAMP}"')
     return html
 

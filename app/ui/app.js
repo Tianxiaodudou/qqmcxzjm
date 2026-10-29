@@ -318,6 +318,8 @@ function applyHomePanel() {
   const active = state.home.panel || '';
   const hub = $('#home-hub');
   if (hub) hub.classList.toggle('hidden', !!active);
+  const homeView = $('#view-home');
+  if (homeView) homeView.classList.toggle('panel-open', !!active);
   $$('#view-home .home-panel').forEach((el) => {
     el.classList.toggle('hidden', el.dataset.panel !== active);
   });
@@ -325,13 +327,73 @@ function applyHomePanel() {
     $('#view-title').textContent = active ? `首页推荐 · ${HOME_PANELS[active]}` : VIEW_TITLES.home;
   }
   if (active) hydrateCovers($('#view-home'));   // 面板刚从隐藏变可见：按需补封面
+  syncMobileBack();
+}
+
+/* ---------------- 手机端外壳（v1.5.0） ----------------
+ * 同一份 DOM 同时服务桌面与手机：窄屏时左侧栏隐藏、底部标签栏出现，
+ * 账号区（同一个节点）搬到「我的」页顶部，避免出现两套需要同步的状态。 */
+const SECONDARY_VIEWS = ['history', 'logs'];
+let lastPrimaryView = 'home';
+let lastSecondaryFrom = 'settings';   // 从哪个主页面进入二级页（返回时回到它）
+
+function isMobileLayout() {
+  return window.matchMedia('(max-width: 900px)').matches;
+}
+
+/** 账号区在「左侧栏」与「我的页顶部」之间搬移 */
+function syncMobileShell() {
+  const account = $('.account');
+  const host = $('#account-host');
+  const slot = $('#m-account-slot');
+  if (account && host && slot) {
+    if (isMobileLayout()) {
+      if (account.parentElement !== slot) slot.appendChild(account);
+    } else if (account.parentElement !== host) {
+      host.appendChild(account);
+    }
+  }
+  document.documentElement.classList.toggle('mobile-shell', isMobileLayout());
+}
+
+/** 顶部返回按钮：二级页或首页二级面板时出现 */
+function syncMobileBack() {
+  const btn = $('#btn-mobile-back');
+  if (!btn) return;
+  const secondary = SECONDARY_VIEWS.indexOf(state.view) >= 0;
+  const homePanel = state.view === 'home' && !!state.home.panel;
+  btn.classList.toggle('hidden', !(secondary || homePanel));
+}
+
+/** 手机端返回：首页面板回入口 / 下载历史回任务 / 消息日志回我的 */
+function mobileBack() {
+  if (state.view === 'home' && state.home.panel) { openHomePanel(''); return; }
+  if (state.view === 'history' || state.view === 'logs') {
+    switchView(lastSecondaryFrom || (state.view === 'history' ? 'tasks' : 'settings'));
+    return;
+  }
+  switchView(lastPrimaryView || 'home');
 }
 
 function switchView(view) {
+  const prev = state.view;
   state.view = view;
+  if (SECONDARY_VIEWS.indexOf(view) < 0) lastPrimaryView = view;
+  else if (SECONDARY_VIEWS.indexOf(prev) < 0) lastSecondaryFrom = prev;
   $$('.nav-item').forEach((btn) => btn.classList.toggle('active', btn.dataset.view === view));
+  // 二级页（下载历史 / 消息日志）保持其父标签的高亮
+  const tabView = view === 'history' ? 'tasks' : view === 'logs' ? 'settings' : view;
+  $$('.tabbar-item').forEach((btn) => btn.classList.toggle('active', btn.dataset.view === tabView));
   $$('.view').forEach((el) => el.classList.toggle('active', el.id === `view-${view}`));
-  $('#view-title').textContent = VIEW_TITLES[view] || '';
+  $('#view-title').textContent = (view === 'settings' && isMobileLayout()) ? '我的' : (VIEW_TITLES[view] || '');
+  document.body.dataset.view = view;
+  const saveBtn = $('#btn-m-save');
+  if (saveBtn) saveBtn.classList.toggle('hidden', view !== 'settings');
+  if (prev !== view) {
+    const content = $('.content');
+    if (content) content.scrollTop = 0;
+  }
+  syncMobileBack();
   // 每个页面都走「有缓存先渲染、过期再后台刷新」，切页不再白屏等待
   if (view === 'home') { applyHomePanel(); loadHome(); }
   if (view === 'tasks') { renderTasks(); refreshTasks(); }
@@ -2364,10 +2426,13 @@ async function refreshTasksInner() {
 }
 
 function updateTaskBadge() {
-  const badge = $('#task-badge');
   const running = (state.tasks.counts && state.tasks.counts.running) || 0;
-  badge.textContent = running ? String(running) : '';
-  badge.classList.toggle('hidden', !running);
+  ['#task-badge', '#tab-badge'].forEach((sel) => {
+    const badge = $(sel);
+    if (!badge) return;
+    badge.textContent = running ? String(running) : '';
+    badge.classList.toggle('hidden', !running);
+  });
 }
 
 function startTaskPolling() {
@@ -2585,9 +2650,9 @@ function historyRowHtml(item) {
         <div class="name">${esc(item.name || item.songmid)}</div>
         <div class="sub">${esc(item.singer || '')}</div>
       </td>
-      <td>${esc(item.quality_label || QUALITY_TEXT[item.quality] || item.quality || '最高')}</td>
-      <td class="col-state" data-role="file-state"><span class="badge idle">待检查</span></td>
-      <td>${fmtTime(item.time)}</td>
+      <td data-label="音质">${esc(item.quality_label || QUALITY_TEXT[item.quality] || item.quality || '最高')}</td>
+      <td class="col-state" data-label="文件" data-role="file-state"><span class="badge idle">待检查</span></td>
+      <td data-label="时间">${fmtTime(item.time)}</td>
       <td class="col-action"><button class="btn btn-sm" data-role="play" data-songmid="${mid}">播放</button></td>
     </tr>`;
 }
@@ -2739,7 +2804,11 @@ function resolvedTheme() {
 
 /** 把主题写到 <html data-theme>，样式表据此切换配色变量。 */
 function applyTheme() {
-  document.documentElement.setAttribute('data-theme', resolvedTheme());
+  const theme = resolvedTheme();
+  document.documentElement.setAttribute('data-theme', theme);
+  // 手机浏览器/WebView 的状态栏颜色跟着主题走
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', theme === 'light' ? '#f2f4f7' : '#0f1115');
 }
 
 if (themeMedia && themeMedia.addEventListener) {
@@ -3183,6 +3252,38 @@ function bindEvents() {
     const item = ev.target.closest('.nav-item');
     if (item) switchView(item.dataset.view);
   });
+  // 手机端底部标签栏：点当前页回到顶部/收起首页二级面板
+  on('#tabbar', 'click', (ev) => {
+    const item = ev.target.closest('.tabbar-item');
+    if (!item) return;
+    const view = item.dataset.view;
+    if (view === state.view) {
+      if (view === 'home' && state.home.panel) { openHomePanel(''); return; }
+      const content = $('.content');
+      if (content) content.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    switchView(view);
+  });
+  on('#btn-mobile-back', 'click', mobileBack);
+  on('#btn-m-save', 'click', () => saveSettings());
+  // 手机端：点歌曲信息区直接试听（勾选框、右侧图标按钮保持各自行为）
+  document.addEventListener('click', (ev) => {
+    if (!isMobileLayout()) return;
+    const info = ev.target.closest('.song-item .info');
+    if (!info) return;
+    if (ev.target.closest('button, a, input, label')) return;
+    const item = info.closest('.song-item');
+    const mid = item && item.dataset.songmid;
+    if (!mid || item.classList.contains('locked')) return;
+    openPlayer(mid, []);
+  });
+  on('#m-open-history', 'click', () => switchView('history'));
+  on('#m-open-logs', 'click', () => switchView('logs'));
+  on('#m-open-history-tasks', 'click', () => switchView('history'));
+  const mobileMq = window.matchMedia('(max-width: 900px)');
+  if (mobileMq.addEventListener) mobileMq.addEventListener('change', syncMobileShell);
+  else if (mobileMq.addListener) mobileMq.addListener(syncMobileShell);
   on('#btn-login', 'click', openLogin);
   on('#btn-logout', 'click', logout);
 
@@ -3377,6 +3478,7 @@ function bindEvents() {
 /* ---------------- 启动 ---------------- */
 async function init() {
   document.body.classList.add('ready');
+  syncMobileShell();
   bindModals();
   bindEvents();
   bindAbout();
@@ -3610,9 +3712,8 @@ function renderAccounts(data) {
 }
 
 function bindAccountPanel() {
-  const sidebar = $('.sidebar');
-  if (!sidebar) return;
-  sidebar.addEventListener('click', async (ev) => {
+  // 账号区在手机端会被搬到「我的」页，所以绑在 document 上而不是 .sidebar
+  document.addEventListener('click', async (ev) => {
     const pick = ev.target.closest('button[data-role="acc-switch"]');
     const del = ev.target.closest('button[data-role="acc-remove"]');
     if (pick && !pick.disabled) {
