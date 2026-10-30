@@ -156,6 +156,7 @@ private fun MainTabs(session: Session, onLogout: () -> Unit) {
     ) { inner ->
         Box(modifier = Modifier.fillMaxSize().padding(inner)) {
             when (tab) {
+                Tab.Home -> HomeScreen(onPlay = { playSong(it) }, onDownload = { Downloader.enqueue(context, it) })
                 Tab.Search -> SearchScreen(onPlay = { playSong(it) }, onDownload = { Downloader.enqueue(context, it) })
                 Tab.Library -> LibraryScreen(onPlay = { playSong(it) }, onDownload = { Downloader.enqueue(context, it) })
                 Tab.Downloads -> DownloadsScreen()
