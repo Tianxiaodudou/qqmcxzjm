@@ -2,7 +2,13 @@
 
 > 本文件由 `tools/ci/release_notes.py` 依据 `manifest` 的 `changelog` 字段生成，**请勿手工编辑**；每个版本的发行说明与安装包见 [Releases](https://github.com/Tianxiaodudou/qqmcxzjm/releases)。
 
-当前版本：**v1.9.2**
+当前版本：**v1.9.3**
+
+## v1.9.3
+
+- ①安卓客户端支持无损播放：先取 SQ 加密直链与 ekey（music.vkey.GetEVkey），整首下载后按 QMC2 规则解密（MapCipher / RC4Cipher 双算法 + 腾讯 TEA 派生密钥，与 fpk 的 decrypt.py、qmc2_fast.c 逐字节同源），解密结果缓存到应用私有目录，同一首只解一次。
+- ②播放顺序改为「先无损，拿不到或解密失败再退回 320k/128k 直链」，等待期间迷你条显示「正在准备无损…」。
+- ③绿钻账号首次播放无损需要几秒下载+解密，之后同曲秒开。
 
 ## v1.9.2
 
