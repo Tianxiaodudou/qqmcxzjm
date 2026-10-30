@@ -19,7 +19,9 @@ object Qmc2 {
     private fun rotate(value: Int, bits: Int): Int {
         val shift = (bits + 4) % 8
         val v = value and 0xFF
-        return ((v shl shift) or (v ushr (8 - shift))) and 0xFF
+        // 注意：参考实现（C 与 decrypt.py）这里并不是标准循环移位，右侧同样按 shift 位移，
+        // 必须照抄，否则掩码从第二个字节起就全错。
+        return ((v shl shift) or (v ushr shift)) and 0xFF
     }
 
     private fun mask(key: ByteArray, offset: Int): Int {
@@ -40,7 +42,8 @@ object Qmc2 {
         var h = 1L
         for (k in key) {
             if (k.toInt() == 0) continue
-            val nh = h * (k.toInt() and 0xFF)
+            // C 实现用的是 32 位无符号乘法，这里必须同样截断，否则 hash 与上游不一致、解密出来的全是噪声
+            val nh = (h * (k.toInt() and 0xFF)) and 0xFFFFFFFFL
             if (nh == 0L || nh <= h) break
             h = nh
         }
