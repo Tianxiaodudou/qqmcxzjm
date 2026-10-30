@@ -31,6 +31,13 @@ object QqClient {
             .build()
     }
 
+    /** 设备 guid：QQ 接口用来标识一次播放请求，随便生成一次固定即可。 */
+    val guid: String by lazy {
+        val bytes = ByteArray(16)
+        java.util.Random().nextBytes(bytes)
+        bytes.joinToString("") { String.format("%02X", it) }
+    }
+
     fun hash33(s: String, seed: Int = 0): Int {
         var h = seed
         for (ch in s) h = (h shl 5) + h + ch.code
