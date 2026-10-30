@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import com.tianxiaodudou.qqmusicdownloader.net.Lossless
 import com.tianxiaodudou.qqmusicdownloader.net.MusicApi
 import com.tianxiaodudou.qqmusicdownloader.net.Session
 import kotlinx.coroutines.Dispatchers
@@ -73,6 +74,7 @@ private fun MainTabs(session: Session, onLogout: () -> Unit) {
     var tab by rememberSaveable { mutableStateOf(Tab.Search) }
     var nowPlaying by remember { mutableStateOf<MusicApi.Song?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     val player = remember { ExoPlayer.Builder(context).build() }
@@ -90,14 +92,23 @@ private fun MainTabs(session: Session, onLogout: () -> Unit) {
     }
 
     fun playSong(song: MusicApi.Song) {
+        nowPlaying = song
+        loading = true
         scope.launch {
-            val url = withContext(Dispatchers.IO) { runCatching { MusicApi.songUrl(song) }.getOrNull() }
-            if (url == null) {
-                Toast.makeText(context, "这首歌拿不到播放地址（可能需要会员或已下架）", Toast.LENGTH_SHORT).show()
-                return@launch
+            // 优先无损（整首下载 + QMC2 解密），失败再退回 320k/128k 直链
+            val file = withContext(Dispatchers.IO) { runCatching { Lossless.playableFile(context, song) }.getOrNull() }
+            loading = false
+            val uri = if (file != null) {
+                android.net.Uri.fromFile(file)
+            } else {
+                val url = withContext(Dispatchers.IO) { runCatching { MusicApi.songUrl(song) }.getOrNull() }
+                if (url == null) {
+                    Toast.makeText(context, "这首歌拿不到播放地址（可能需要会员或已下架）", Toast.LENGTH_SHORT).show()
+                    return@launch
+                }
+                android.net.Uri.parse(url)
             }
-            nowPlaying = song
-            player.setMediaItem(MediaItem.fromUri(url))
+            player.setMediaItem(MediaItem.fromUri(uri))
             player.prepare()
             player.play()
         }
@@ -111,7 +122,7 @@ private fun MainTabs(session: Session, onLogout: () -> Unit) {
                 if (song != null) {
                     MiniBar(
                         title = song.name,
-                        subtitle = song.singers,
+                        subtitle = if (loading) "正在准备无损…" else song.singers,
                         playing = isPlaying,
                         onToggle = { if (isPlaying) player.pause() else player.play() },
                     )

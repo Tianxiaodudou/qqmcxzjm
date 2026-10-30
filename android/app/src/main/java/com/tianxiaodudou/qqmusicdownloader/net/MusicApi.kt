@@ -71,6 +71,23 @@ object MusicApi {
         return null
     }
 
+    /** 无损：拿加密直链 + ekey。返回 null 表示这首歌没有 SQ 权限。 */
+    fun lossless(song: Song): Pair<String, String>? {
+        val p = JSONObject()
+        p.put("uin", QqClient.session?.uin ?: "0")
+        p.put("filename", JSONArray().put("F000" + song.mediaMid + ".mflac"))
+        p.put("guid", QqClient.guid)
+        p.put("songmid", JSONArray().put(song.mid))
+        p.put("songtype", JSONArray().put(0))
+        p.put("ctx", 0)
+        val data = runCatching { QqClient.cgi("music.vkey.GetEVkey", "CgiGetEVkey", p) }.getOrNull() ?: return null
+        val info = data.optJSONArray("midurlinfo")?.optJSONObject(0) ?: return null
+        val purl = info.optString("purl").orEmpty()
+        val ekey = info.optString("ekey").orEmpty()
+        if (purl.isEmpty() || ekey.isEmpty()) return null
+        return Pair(if (purl.startsWith("http")) purl else "https://dl.stream.qqmusic.qq.com/" + purl, ekey)
+    }
+
     private fun vkey(song: Song, quality: String): String? {
         val p = JSONObject()
         p.put("uin", QqClient.session?.uin ?: "0")
