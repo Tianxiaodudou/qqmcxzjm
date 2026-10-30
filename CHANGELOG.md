@@ -2,7 +2,12 @@
 
 > 本文件由 `tools/ci/release_notes.py` 依据 `manifest` 的 `changelog` 字段生成，**请勿手工编辑**；每个版本的发行说明与安装包见 [Releases](https://github.com/Tianxiaodudou/qqmcxzjm/releases)。
 
-当前版本：**v1.7.2**
+当前版本：**v1.7.3**
+
+## v1.7.3
+
+- ①修复无损试听：QQ 音乐的 SQ 无损下发的是加密 .mflac / .mgg，浏览器无法直接解码，所以以前切到「无损」会没声音/报错；现在 /preview/stream 识别到 encrypted 音源后，会在服务端整首下载并用下载链路同一套 QMC2 解密，缓存到数据目录的 preview-cache 再按普通音频流返回（支持 Range 拖动），同一首歌同一档位只解一次，之后秒开；最多缓存 8 首 / 800MB。
+- ②音质弹层与切换提示会说明首次解码需要等待；无损仍需要账号本身有该歌曲的权限（绿钻/已购专辑）。
 
 ## v1.7.2
 
