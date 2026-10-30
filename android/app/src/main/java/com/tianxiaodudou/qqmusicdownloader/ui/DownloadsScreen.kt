@@ -18,15 +18,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.Spacer
 import com.tianxiaodudou.qqmusicdownloader.net.Downloader
+import com.tianxiaodudou.qqmusicdownloader.net.History
 
 @Composable
 fun DownloadsScreen() {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var refresh by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    androidx.compose.runtime.LaunchedEffect(refresh) { }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(16.dp)) {
             Text("下载任务", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         }
-        if (Downloader.tasks.isEmpty()) {
+        val history = History.list(context)
+        if (Downloader.tasks.isEmpty() && history.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("还没有下载任务", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -59,6 +66,25 @@ fun DownloadsScreen() {
                     }
                     if (task.state == "失败") {
                         Text(task.path, fontSize = 10.sp, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+            if (history.isNotEmpty()) {
+                item {
+                    Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("下载历史", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.weight(1f))
+                        TextButton(onClick = { History.clear(context); refresh += 1 }) { Text("清空") }
+                    }
+                }
+                items(history) { h ->
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        Text(h.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 14.sp)
+                        Text(
+                            h.artist,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }

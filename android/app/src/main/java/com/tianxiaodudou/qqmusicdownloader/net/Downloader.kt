@@ -65,6 +65,7 @@ object Downloader {
                 val name = safeName(song.name) + "_" + safeName(song.singers) + "_" + song.mid + "." + ext
                 val saved = export(app, name, mime, src!!)
                 update(song.mid) { it.copy(state = "完成", progress = 100, path = saved) }
+                History.add(app, song, saved)
             } catch (e: Exception) {
                 update(song.mid) { it.copy(state = "失败", progress = 0, path = e.message ?: "未知错误") }
             }
