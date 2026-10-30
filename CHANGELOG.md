@@ -2,7 +2,14 @@
 
 > 本文件由 `tools/ci/release_notes.py` 依据 `manifest` 的 `changelog` 字段生成，**请勿手工编辑**；每个版本的发行说明与安装包见 [Releases](https://github.com/Tianxiaodudou/qqmcxzjm/releases)。
 
-当前版本：**v1.9.7**
+当前版本：**v1.9.8**
+
+## v1.9.8
+
+- ①下载目录改为系统文件选择器：在「我的 → 选择下载目录」里挑一个文件夹（SAF），授权持久化，重启后仍可写，与 fpk 的「选择文件夹」逻辑一致。
+- ②未选目录时下载会明确提示先去选目录，不再悄悄写到别处。
+- ③写入走 DocumentFile/DocumentsContract，不需要任何存储权限；Android 8/9 也照样能用。
+- ④「我的」页显示当前下载目录。
 
 ## v1.9.7
 
