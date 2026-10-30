@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -34,7 +35,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 @Composable
-fun HomeScreen(onPlay: (MusicApi.Song) -> Unit, onDownload: (MusicApi.Song) -> Unit) {
+fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi.Song) -> Unit) {
     var charts by remember { mutableStateOf<List<TopApi.Chart>?>(null) }
     var opened by remember { mutableStateOf<TopApi.Chart?>(null) }
     var songs by remember { mutableStateOf<List<MusicApi.Song>?>(null) }
@@ -107,10 +108,10 @@ fun HomeScreen(onPlay: (MusicApi.Song) -> Unit, onDownload: (MusicApi.Song) -> U
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             } else {
                 LazyColumn(Modifier.fillMaxSize()) {
-                    items(list) { song ->
+                    itemsIndexed(list) { i, song ->
                         Row(
                             Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                                .clickable { onPlay(song) }
+                                .clickable { onPlay(list, i) }
                                 .padding(horizontal = 16.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {

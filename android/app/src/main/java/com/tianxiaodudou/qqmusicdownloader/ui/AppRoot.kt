@@ -84,6 +84,8 @@ private fun MainTabs(session: Session, onLogout: () -> Unit) {
     var isPlaying by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
     var showPlayer by remember { mutableStateOf(false) }
+    var queue by remember { mutableStateOf<List<MusicApi.Song>>(emptyList()) }
+    var qIndex by remember { mutableStateOf(-1) }
     val scope = rememberCoroutineScope()
 
     var dirLabel by remember { mutableStateOf(DirStore.get(context)?.lastPathSegment?.take(40) ?: "") }
@@ -106,6 +108,21 @@ private fun MainTabs(session: Session, onLogout: () -> Unit) {
             player.removeListener(listener)
             player.release()
         }
+    }
+
+    fun playAt(list: List<MusicApi.Song>, index: Int) {
+        if (index !in list.indices) return
+        queue = list
+        qIndex = index
+        playSong(list[index])
+    }
+
+    fun playNext() {
+        if (qIndex >= 0 && qIndex + 1 < queue.size) playAt(queue, qIndex + 1)
+    }
+
+    fun playPrev() {
+        if (qIndex > 0) playAt(queue, qIndex - 1)
     }
 
     fun playSong(song: MusicApi.Song) {
@@ -160,16 +177,16 @@ private fun MainTabs(session: Session, onLogout: () -> Unit) {
     ) { inner ->
         Box(modifier = Modifier.fillMaxSize().padding(inner)) {
             when (tab) {
-                Tab.Home -> HomeScreen(onPlay = { playSong(it) }, onDownload = { Downloader.enqueue(context, it) })
-                Tab.Search -> SearchScreen(onPlay = { playSong(it) }, onDownload = { Downloader.enqueue(context, it) })
-                Tab.Library -> LibraryScreen(onPlay = { playSong(it) }, onDownload = { Downloader.enqueue(context, it) })
+                Tab.Home -> HomeScreen(onPlay = { list, i -> playAt(list, i) }, onDownload = { Downloader.enqueue(context, it) })
+                Tab.Search -> SearchScreen(onPlay = { list, i -> playAt(list, i) }, onDownload = { Downloader.enqueue(context, it) })
+                Tab.Library -> LibraryScreen(onPlay = { list, i -> playAt(list, i) }, onDownload = { Downloader.enqueue(context, it) })
                 Tab.Downloads -> DownloadsScreen()
                 Tab.Mine -> MinePage(session, onLogout, dirLabel, onPickDir = { pickDir.launch(null) })
                 else -> Placeholder(tab.label)
             }
             val playing = nowPlaying
             if (showPlayer && playing != null) {
-                PlayerScreen(playing, player) { showPlayer = false }
+                PlayerScreen(playing, player, onBack = { showPlayer = false }, onPrev = { playPrev() }, onNext = { playNext() })
             }
         }
     }

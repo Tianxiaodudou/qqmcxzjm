@@ -47,7 +47,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 @Composable
-fun PlayerScreen(song: MusicApi.Song, player: ExoPlayer, onBack: () -> Unit) {
+fun PlayerScreen(song: MusicApi.Song, player: ExoPlayer, onBack: () -> Unit, onPrev: () -> Unit, onNext: () -> Unit) {
     var lines by remember(song.mid) { mutableStateOf<List<LyricApi.Line>>(emptyList()) }
     var posMs by remember { mutableLongStateOf(0L) }
     var playing by remember { mutableStateOf(player.isPlaying) }
@@ -155,9 +155,11 @@ fun PlayerScreen(song: MusicApi.Song, player: ExoPlayer, onBack: () -> Unit) {
             Modifier.fillMaxWidth().padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.Center,
         ) {
+            TextButton(onClick = onPrev) { Text("上一首", fontSize = 14.sp) }
             TextButton(onClick = { if (player.isPlaying) player.pause() else player.play() }) {
                 Text(if (playing) "暂停" else "播放", fontSize = 18.sp, color = MaterialTheme.colorScheme.primary)
             }
+            TextButton(onClick = onNext) { Text("下一首", fontSize = 14.sp) }
             TextButton(onClick = {
                 scope.launch {
                     val ok = withContext(Dispatchers.IO) { runCatching { PlaylistApi.like(song) }.getOrNull() } == true
