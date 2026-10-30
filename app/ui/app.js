@@ -1992,6 +1992,8 @@ const Player = (() => {
   let pressStart = { x: 0, y: 0 };
   let suppressClickUntil = 0;
   let tickTimer = 0;
+  let rafId = 0;
+  let lastClock = '';
   let fields = [];
   let speed = 1;
   let quality = String(localStorage.getItem(PLAYER_QUALITY_KEY) || 'mp3_320');
@@ -2454,7 +2456,51 @@ const Player = (() => {
     const start = lines[idx].time;
     const end = lines[idx + 1] ? lines[idx + 1].time : start + 4;
     const p = Math.max(0, Math.min(100, ((now - start) / Math.max(0.4, end - start)) * 100));
-    active.style.setProperty('--p', p.toFixed(1) + '%');
+    active.style.setProperty('--p', p.toFixed(2) + '%');
+  }
+  /* 播放中按帧推进：进度条与歌词扫色都以 ~60fps 前进，避免 timeupdate 的 4Hz 台阶感 */
+  function paintProgress() {
+    const a = audio();
+    if (!a) return;
+    const dur = Number.isFinite(a.duration) ? a.duration : 0;
+    const cur = dragging && previewTime != null ? previewTime : (Number(a.currentTime) || 0);
+    const pct = dur ? Math.max(0, Math.min(100, (cur / dur) * 100)) : 0;
+    const v = pct.toFixed(2) + '%';
+    const seek = el('pw-seek');
+    if (seek) {
+      if (!dragging) {
+        const sv = String(Math.round(pct * 10));
+        if (seek.value !== sv) seek.value = sv;
+      }
+      seek.style.setProperty('--p', v);
+    }
+    const mp = el('mini-player');
+    if (mp) mp.style.setProperty('--p', v);
+    const clock = fmtClock(cur);
+    if (clock !== lastClock) {
+      lastClock = clock;
+      const c = el('pf-cur');
+      if (c) c.textContent = clock;
+      const d = el('pf-dur');
+      if (d) d.textContent = dur ? fmtClock(dur) : '--:--';
+    }
+  }
+  function fastTick() {
+    rafId = 0;
+    const a = audio();
+    if (!a || document.hidden) return;
+    paintProgress();
+    const m = modal();
+    if (m && !m.classList.contains('hidden')) highlight();
+    if (!a.paused || dragging) rafId = requestAnimationFrame(fastTick);
+  }
+  function startTick() {
+    if (rafId || document.hidden) return;
+    rafId = requestAnimationFrame(fastTick);
+  }
+  function stopTick() {
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = 0;
   }
   function scrollActive() {
     const b = lrcBox();
@@ -2661,6 +2707,8 @@ const Player = (() => {
     }
   }
   function reset() {
+    stopTick();
+    lastClock = '';
     const a = audio();
     if (a) {
       a.pause();
@@ -2699,6 +2747,7 @@ const Player = (() => {
       document.body.classList.remove('has-player');
     }
     if (opts.src) play(opts.src);
+    startTick();
     syncSleepUI();
     setSpeed(speed);
     syncTime();
@@ -2714,6 +2763,7 @@ const Player = (() => {
     syncTime();
     syncPlayButton();
     highlight(true);
+    startTick();
   }
   function update(opts) {
     setMeta(opts);
@@ -2722,6 +2772,7 @@ const Player = (() => {
     syncTime();
     syncPlayButton();
     syncMiniPlayer();
+    startTick();
   }
   function close() {
     const m = modal();
@@ -2736,6 +2787,7 @@ const Player = (() => {
   }
   /* 桌面端关闭播放页时真正停止（手机上只收起，迷你播放器继续） */
   function stop() {
+    stopTick();
     const a = audio();
     if (a) {
       a.pause();
@@ -2832,11 +2884,13 @@ const Player = (() => {
       syncTime(); syncMute(); highlight(true);
     });
     a.addEventListener('play', () => {
+      startTick();
       syncPlayButton(); syncMiniPlayer();
       if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
     });
-    a.addEventListener('pause', () => { syncPlayButton(); syncMiniPlayer(); });
-    a.addEventListener('ended', () => { syncPlayButton(); syncMiniPlayer(); });
+    a.addEventListener('pause', () => { stopTick(); syncPlayButton(); syncMiniPlayer(); });
+    a.addEventListener('ended', () => { stopTick(); syncPlayButton(); syncMiniPlayer(); });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) stopTick(); else startTick(); });
     a.addEventListener('error', () => {
       const code = a.error ? a.error.code : '?';
       const map = { 1: '加载被中止', 2: '网络错误（文件读取失败）', 3: '解码错误（浏览器不支持该编码）', 4: '音频源不可用（文件缺失/格式不受支持）' };

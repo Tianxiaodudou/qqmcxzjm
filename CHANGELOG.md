@@ -2,7 +2,12 @@
 
 > 本文件由 `tools/ci/release_notes.py` 依据 `manifest` 的 `changelog` 字段生成，**请勿手工编辑**；每个版本的发行说明与安装包见 [Releases](https://github.com/Tianxiaodudou/qqmcxzjm/releases)。
 
-当前版本：**v1.7.3**
+当前版本：**v1.7.4**
+
+## v1.7.4
+
+- ①修复播放页歌词染色「一顿一顿」：以前逐字扫色、进度条和时间只跟着 timeupdate（约 4Hz）刷新，所以看起来一格一格往前跳；现在播放中改用 requestAnimationFrame 逐帧推进，歌词染色、进度条、时间显示都按屏幕刷新率平滑前进。
+- ②暂停、切歌、切到后台时自动停帧，回到前台继续，不额外耗电。
 
 ## v1.7.3
 
