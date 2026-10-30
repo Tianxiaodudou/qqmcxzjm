@@ -2,7 +2,12 @@
 
 > 本文件由 `tools/ci/release_notes.py` 依据 `manifest` 的 `changelog` 字段生成，**请勿手工编辑**；每个版本的发行说明与安装包见 [Releases](https://github.com/Tianxiaodudou/qqmcxzjm/releases)。
 
-当前版本：**v1.9.1**
+当前版本：**v1.9.2**
+
+## v1.9.2
+
+- ①安卓客户端补齐三种登录方式，与 fpk 完全对齐：QQ 扫码、微信扫码（open.weixin qrconnect + l/qrconnect 长轮询 + wx_code 换 musickey）、手机号验证码（SendPhoneAuthCode + Login）。
+- ②登录页改成三段切换，扫码页统一 2 秒轮询、过期自动刷新，手机号页自动过滤非数字、发送与登录各自有状态提示。
 
 ## v1.9.1
 
