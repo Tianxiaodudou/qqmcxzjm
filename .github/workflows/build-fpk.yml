@@ -1,8 +1,10 @@
 name: Build FPK
 
+# 发版只打 tag：以前 push main 和 push tag 各触发一次，同一个提交会跑两遍。
+# 需要单独验证某个分支时，用 Actions 页面的 Run workflow（workflow_dispatch），
+# 或者直接开 PR（pull_request 会跑校验）。
 on:
   push:
-    branches: [main]
     tags: ['v*']
   pull_request:
   workflow_dispatch:
