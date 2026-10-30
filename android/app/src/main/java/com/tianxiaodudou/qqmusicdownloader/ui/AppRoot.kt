@@ -75,6 +75,7 @@ private fun MainTabs(session: Session, onLogout: () -> Unit) {
     var nowPlaying by remember { mutableStateOf<MusicApi.Song?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
+    var showPlayer by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     val player = remember { ExoPlayer.Builder(context).build() }
@@ -125,6 +126,7 @@ private fun MainTabs(session: Session, onLogout: () -> Unit) {
                         subtitle = if (loading) "正在准备无损…" else song.singers,
                         playing = isPlaying,
                         onToggle = { if (isPlaying) player.pause() else player.play() },
+                        onOpen = { showPlayer = true },
                     )
                 }
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
@@ -146,17 +148,21 @@ private fun MainTabs(session: Session, onLogout: () -> Unit) {
                 Tab.Mine -> MinePage(session, onLogout)
                 else -> Placeholder(tab.label)
             }
+            val playing = nowPlaying
+            if (showPlayer && playing != null) {
+                PlayerScreen(playing, player) { showPlayer = false }
+            }
         }
     }
 }
 
 @Composable
-private fun MiniBar(title: String, subtitle: String, playing: Boolean, onToggle: () -> Unit) {
+private fun MiniBar(title: String, subtitle: String, playing: Boolean, onToggle: () -> Unit, onOpen: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .clickable { onToggle() }
+            .clickable { onOpen() }
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -170,7 +176,7 @@ private fun MiniBar(title: String, subtitle: String, playing: Boolean, onToggle:
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Box(Modifier.size(34.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(34.dp).clickable { onToggle() }, contentAlignment = Alignment.Center) {
             Text(if (playing) "⏸" else "▶", fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
         }
     }
