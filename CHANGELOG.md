@@ -2,7 +2,12 @@
 
 > 本文件由 `tools/ci/release_notes.py` 依据 `manifest` 的 `changelog` 字段生成，**请勿手工编辑**；每个版本的发行说明与安装包见 [Releases](https://github.com/Tianxiaodudou/qqmcxzjm/releases)。
 
-当前版本：**v1.10.7**
+当前版本：**v1.10.8**
+
+## v1.10.8
+
+- ①修掉安卓端无损解密的两处致命错误（此前 SQ 解出来是噪声、下载的无损文件不能播）：一是 MapCipher 的位移必须照抄参考实现的 (v<<s)|(v>>s)，我写成了标准循环移位；二是 RC4Cipher 的 hash 必须按 32 位无符号截断，我用了 64 位长整型，算出的分段跳过长度与上游不同。
+- ②补了一套与 fpk 的 decrypt.py 逐行对拍的测试（60 组随机密钥/偏移的 map+rc4、40 组 TEA 块、40 组 ekey 派生），全部一致后才发版。
 
 ## v1.10.7
 
