@@ -2,7 +2,14 @@
 
 > 本文件由 `tools/ci/release_notes.py` 依据 `manifest` 的 `changelog` 字段生成，**请勿手工编辑**；每个版本的发行说明与安装包见 [Releases](https://github.com/Tianxiaodudou/qqmcxzjm/releases)。
 
-当前版本：**v1.9.5**
+当前版本：**v1.9.6**
+
+## v1.9.6
+
+- ①安卓客户端新增「我的歌单」：拉取账号下的自建歌单（PlaylistBaseRead / GetPlaylistByUin），显示名称与歌曲数。
+- ②点歌单进入详情，按 CgiGetDiss 取歌曲列表（一次 100 首），点歌直接播放（沿用无损优先的播放链路）。
+- ③歌单页有加载态与错误提示，取不到时显示原因而不是空白。
+- ④「首页」标签暂为占位，下一个版本补推荐内容。
 
 ## v1.9.5
 
