@@ -34,10 +34,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.AlertDialog
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.media3.exoplayer.ExoPlayer
 import com.tianxiaodudou.qqmusicdownloader.net.LyricApi
 import com.tianxiaodudou.qqmusicdownloader.net.MusicApi
-import com.tianxiaodudou.qqmusicdownloader.net.QqClient
+import com.tianxiaodudou.qqmusicdownloader.net.PlaylistApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -48,6 +52,15 @@ fun PlayerScreen(song: MusicApi.Song, player: ExoPlayer, onBack: () -> Unit) {
     var posMs by remember { mutableLongStateOf(0L) }
     var playing by remember { mutableStateOf(player.isPlaying) }
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    var msg by remember { mutableStateOf("") }
+    var showAdd by remember { mutableStateOf(false) }
+    var lists by remember { mutableStateOf<List<PlaylistApi.Item>>(emptyList()) }
+    LaunchedEffect(showAdd) {
+        if (showAdd && lists.isEmpty()) {
+            lists = withContext(Dispatchers.IO) { runCatching { PlaylistApi.mine() }.getOrNull() ?: emptyList() }
+        }
+    }
 
     LaunchedEffect(song.mid) {
         lines = withContext(Dispatchers.IO) {
@@ -145,6 +158,41 @@ fun PlayerScreen(song: MusicApi.Song, player: ExoPlayer, onBack: () -> Unit) {
             TextButton(onClick = { if (player.isPlaying) player.pause() else player.play() }) {
                 Text(if (playing) "暂停" else "播放", fontSize = 18.sp, color = MaterialTheme.colorScheme.primary)
             }
+            TextButton(onClick = {
+                scope.launch {
+                    val ok = withContext(Dispatchers.IO) { runCatching { PlaylistApi.like(song) }.getOrNull() } == true
+                    msg = if (ok) "已收藏到「我喜欢」" else "收藏失败"
+                }
+            }) { Text("收藏", fontSize = 14.sp) }
+            TextButton(onClick = { showAdd = true }) { Text("加到歌单", fontSize = 14.sp) }
+        }
+        if (msg.isNotEmpty()) {
+            Text(msg, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 6.dp))
+        }
+        if (showAdd) {
+            AlertDialog(
+                onDismissRequest = { showAdd = false },
+                title = { Text("加到歌单") },
+                text = {
+                    if (lists.isEmpty()) Text("还没有歌单")
+                    else LazyColumn { items(lists.size) { i ->
+                        val it = lists[i]
+                        Text(
+                            it.name + "（" + it.count + " 首）",
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                showAdd = false
+                                scope.launch {
+                                    val ok = withContext(Dispatchers.IO) {
+                                        runCatching { PlaylistApi.addSong(it.dirId.toIntOrNull() ?: 0, it.id.toIntOrNull() ?: 0, song) }.getOrNull()
+                                    } == true
+                                    msg = if (ok) "已加到「" + it.name + "」" else "加入失败"
+                                }
+                            }.padding(vertical = 12.dp),
+                        )
+                    } }
+                },
+                confirmButton = { TextButton(onClick = { showAdd = false }) { Text("关闭") } },
+            )
         }
     }
 }

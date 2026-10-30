@@ -31,6 +31,20 @@ object PlaylistApi {
         return out
     }
 
+    /** 加到指定歌单或「我喜欢」（dirId 201）。 */
+    fun addSong(dirId: Int, tid: Int, song: MusicApi.Song): Boolean {
+        val info = org.json.JSONArray().put(org.json.JSONObject().put("songId", song.id).put("songType", 0))
+        val p = JSONObject()
+        p.put("dirId", dirId)
+        p.put("tid", tid)
+        p.put("bFmtUtf8", true)
+        p.put("v_songInfo", info)
+        val data = QqClient.cgi("music.musicasset.PlaylistDetailWrite", "AddSonglist", p)
+        return data.optInt("retCode", 0) == 0
+    }
+
+    fun like(song: MusicApi.Song): Boolean = addSong(201, 0, song)
+
     fun songs(item: Item, page: Int = 1, num: Int = 100): List<MusicApi.Song> {
         val p = JSONObject()
         p.put("disstid", item.id)

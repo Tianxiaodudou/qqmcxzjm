@@ -7,6 +7,7 @@ import java.util.UUID
 object MusicApi {
 
     data class Song(
+        val id: Int,
         val mid: String,
         val name: String,
         val singers: String,
@@ -54,6 +55,7 @@ object MusicApi {
         }
         val album = o.optJSONObject("album")
         return Song(
+            id = o.optInt("id", o.optInt("songId", 0)),
             mid = mid,
             name = o.optString("name", o.optString("title")),
             singers = names.toString(),
