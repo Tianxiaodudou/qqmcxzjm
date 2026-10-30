@@ -2,7 +2,13 @@
 
 > 本文件由 `tools/ci/release_notes.py` 依据 `manifest` 的 `changelog` 字段生成，**请勿手工编辑**；每个版本的发行说明与安装包见 [Releases](https://github.com/Tianxiaodudou/qqmcxzjm/releases)。
 
-当前版本：**v1.9.9**
+当前版本：**v1.10.0**
+
+## v1.10.0
+
+- ①安卓客户端「首页」不再是占位：接入排行榜（music.musicToplist.Toplist 的 GetAll + GetDetail），列出全部榜单，点进去看榜单歌曲，可直接播放或下载。
+- ②榜单与榜单详情都有加载态和错误提示。
+- ③后续会在首页补上推荐歌单、新歌、猜你喜欢与每日推荐。
 
 ## v1.9.9
 
