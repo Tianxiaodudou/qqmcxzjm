@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import com.tianxiaodudou.qqmusicdownloader.net.Downloader
 import com.tianxiaodudou.qqmusicdownloader.net.Lossless
 import com.tianxiaodudou.qqmusicdownloader.net.MusicApi
 import com.tianxiaodudou.qqmusicdownloader.net.Session
@@ -144,8 +145,9 @@ private fun MainTabs(session: Session, onLogout: () -> Unit) {
     ) { inner ->
         Box(modifier = Modifier.fillMaxSize().padding(inner)) {
             when (tab) {
-                Tab.Search -> SearchScreen(onPlay = { playSong(it) })
-                Tab.Library -> LibraryScreen(onPlay = { playSong(it) })
+                Tab.Search -> SearchScreen(onPlay = { playSong(it) }, onDownload = { Downloader.enqueue(context, it) })
+                Tab.Library -> LibraryScreen(onPlay = { playSong(it) }, onDownload = { Downloader.enqueue(context, it) })
+                Tab.Downloads -> DownloadsScreen()
                 Tab.Mine -> MinePage(session, onLogout)
                 else -> Placeholder(tab.label)
             }

@@ -37,7 +37,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-fun SearchScreen(onPlay: (MusicApi.Song) -> Unit) {
+fun SearchScreen(onPlay: (MusicApi.Song) -> Unit, onDownload: (MusicApi.Song) -> Unit) {
     var keyword by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
@@ -102,6 +102,9 @@ fun SearchScreen(onPlay: (MusicApi.Song) -> Unit) {
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                    }
+                    androidx.compose.material3.TextButton(onClick = { onDownload(song) }) {
+                        Text("下载", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                     }
                 }
             }

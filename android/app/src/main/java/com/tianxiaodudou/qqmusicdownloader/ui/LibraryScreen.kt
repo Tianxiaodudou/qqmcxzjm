@@ -35,7 +35,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 @Composable
-fun LibraryScreen(onPlay: (MusicApi.Song) -> Unit) {
+fun LibraryScreen(onPlay: (MusicApi.Song) -> Unit, onDownload: (MusicApi.Song) -> Unit) {
     var playlists by remember { mutableStateOf<List<PlaylistApi.Item>?>(null) }
     var opened by remember { mutableStateOf<PlaylistApi.Item?>(null) }
     var songs by remember { mutableStateOf<List<MusicApi.Song>?>(null) }
@@ -116,6 +116,9 @@ fun LibraryScreen(onPlay: (MusicApi.Song) -> Unit) {
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
+                            }
+                            androidx.compose.material3.TextButton(onClick = { onDownload(song) }) {
+                                Text("下载", fontSize = 12.sp)
                             }
                         }
                     }
