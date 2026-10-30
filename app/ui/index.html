@@ -763,17 +763,23 @@
     </div>
   </div>
 
-  <!-- 加入播放列表 -->
+  <!-- 加到歌单：本机播放队列 + QQ 音乐账号歌单 -->
   <div class="sheet hidden" id="sheet-add">
     <div class="sheet-card">
       <div class="sheet-head"><h3>加到歌单</h3><button class="icon-btn" type="button" data-sheet-close>✕</button></div>
       <div class="sheet-body">
         <button class="list-choice" type="button" id="add-to-queue">
           <span class="lc-ico">☰</span>
-          <span class="lc-text"><b>播放列表</b><span class="muted" id="add-queue-count">0 首</span></span>
+          <span class="lc-text"><b>本机播放队列</b><span class="muted" id="add-queue-count">0 首</span></span>
           <span class="lc-go">加入 ›</span>
         </button>
-        <p class="sheet-note">应用内只有这一个播放队列；加入后可在「我的 → 播放列表」或播放器 ☰ 里管理。</p>
+        <h4 class="sheet-sub">QQ 音乐歌单 <span class="muted" id="add-login-hint"></span></h4>
+        <div class="pl-list" id="add-songlists"><div class="empty">加载中…</div></div>
+        <div class="new-list">
+          <input type="text" id="new-list-name" maxlength="20" placeholder="新建歌单名称" autocomplete="off" />
+          <button class="btn btn-ghost" id="new-list-create" type="button">新建</button>
+        </div>
+        <p class="sheet-note">加入的是 QQ 音乐账号里的歌单；本机播放队列只在本设备播放，不影响账号。</p>
       </div>
     </div>
   </div>

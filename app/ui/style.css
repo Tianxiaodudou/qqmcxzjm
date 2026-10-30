@@ -1456,3 +1456,23 @@ body.has-player .toast-wrap {
 
 .mp-btn:disabled { opacity: .3; }
 
+
+/* 加到歌单：QQ 音乐歌单列表 */
+.sheet-sub { margin: 16px 4px 8px; display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--text-dim); }
+.pl-list { display: flex; flex-direction: column; gap: 2px; max-height: 34vh; overflow-y: auto; }
+.pl-row { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px; border: 0; border-radius: 10px; background: none; color: var(--text); text-align: left; }
+.pl-row:active { background: var(--bg-hover); }
+.pl-cover { width: 42px; height: 42px; flex: 0 0 42px; border-radius: 8px; background: var(--bg-hover) center/cover no-repeat; overflow: hidden; }
+.pl-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.pl-name { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-sub { font-size: 11.5px; color: var(--text-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-go { flex: 0 0 auto; color: var(--primary); font-size: 12.5px; }
+.new-list { display: flex; gap: 8px; margin-top: 12px; }
+.new-list input { flex: 1; min-width: 0; height: 38px; padding: 0 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); color: var(--text); font-size: 14px; }
+.pl-empty { padding: 14px 8px; text-align: center; color: var(--text-mute); font-size: 12.5px; }
+.pl-empty p { margin: 0 0 10px; }
+
+
+/* 播放页里点收藏/加歌单时，登录弹窗要盖在播放页之上 */
+#modal-login { z-index: 96; }
+

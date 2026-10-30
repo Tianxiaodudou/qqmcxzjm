@@ -2028,38 +2028,65 @@ const Player = (() => {
     }
   }
 
-  /* ---------------- 收藏（本机） ---------------- */
-  function isFav() {
-    const mid = state.player.songmid;
-    return !!mid && favSet().has(mid);
-  }
+  /* ---------------- 收藏（QQ 音乐「我喜欢」，走 QQMusicApi 写接口） ---------------- */
+  let favState = false;
+  let favBusy = false;
   function syncFav() {
     const icon = el('pf-fav-ico');
-    const on = isFav();
-    if (icon) icon.textContent = on ? '♥' : '♡';
+    if (icon) icon.textContent = favState ? '♥' : '♡';
     const btn = document.querySelector('#pf-tools [data-pf="fav"]');
     if (btn) {
-      btn.classList.toggle('active', on);
-      btn.title = on ? '取消收藏' : '收藏';
+      btn.classList.toggle('active', favState);
+      btn.title = favState ? '取消收藏' : '收藏到「我喜欢」';
     }
   }
-  function toggleFav() {
+  async function loadFavState() {
     const mid = state.player.songmid;
-    const song = state.player.song;
-    if (!mid) return;
-    const set = favSet();
-    if (set.has(mid)) {
-      set.delete(mid);
-      toast('已取消收藏', 'info', 1400);
-    } else {
-      set.add(mid);
-      toast('已收藏到本机', 'success', 1400);
-    }
-    writeJson(FAV_KEY, Array.from(set));
-    if (song) state.favorites = set;
+    favState = false;
     syncFav();
+    if (!mid || !state.loggedIn) return;
+    try {
+      const data = await api('/user/fav/check', { query: { songmid: mid } });
+      if (state.player.songmid === mid) {
+        favState = !!data.favourite;
+        syncFav();
+      }
+    } catch (err) { /* 未登录 / 网络失败：保持空心，不打扰播放 */ }
+  }
+  function favPop() {
     const icon = el('pf-fav-ico');
-    if (icon) { icon.classList.remove('pop'); void icon.offsetWidth; icon.classList.add('pop'); }
+    if (!icon) return;
+    icon.classList.remove('pop');
+    void icon.offsetWidth;
+    icon.classList.add('pop');
+  }
+  async function toggleFav() {
+    const mid = state.player.songmid;
+    if (!mid || favBusy) return;
+    if (!state.loggedIn) {
+      toast('请先登录 QQ 音乐，再收藏到「我喜欢」', 'warn');
+      openLogin();
+      return;
+    }
+    const target = !favState;
+    favBusy = true;
+    try {
+      await api('/user/fav', { method: 'POST', body: { songmid: mid, like: target } });
+      favState = target;
+      syncFav();
+      favPop();
+      state.fav.loadedAt = 0;
+      toast(target ? '已收藏到「我喜欢」' : '已取消收藏', 'success', 1500);
+    } catch (err) {
+      if (err && err.code === 'not_logged_in') {
+        toast('登录态已过期，请重新登录', 'warn');
+        openLogin();
+      } else {
+        handleError(err);
+      }
+    } finally {
+      favBusy = false;
+    }
   }
 
   /* ---------------- 音质 ---------------- */
@@ -2661,6 +2688,7 @@ const Player = (() => {
     syncOffsetTip();
     syncQuality();
     syncFav();
+    loadFavState();
     updateFollowButton();
     if (opts.show !== false) {
       modal().classList.remove('hidden');
@@ -2719,6 +2747,76 @@ const Player = (() => {
     state.player.songmid = '';
     state.player.song = null;
     close();
+  }
+
+  /* ---------------- 加到歌单（QQ 音乐账号歌单） ---------------- */
+  async function openAddSheet() {
+    const count = el('add-queue-count');
+    if (count) count.textContent = queueItems().length + ' 首';
+    openSheet('sheet-add');
+    await loadAddSonglists();
+  }
+  async function loadAddSonglists() {
+    const box = el('add-songlists');
+    const hint = el('add-login-hint');
+    if (!box) return;
+    if (hint) hint.textContent = state.loggedIn ? '' : '未登录';
+    if (!state.loggedIn) {
+      box.innerHTML = '<div class="pl-empty"><p>登录后可把歌曲加入 QQ 音乐歌单</p>' +
+        '<button class="btn btn-primary btn-sm" type="button" data-add-login="1">登录 QQ 音乐</button></div>';
+      return;
+    }
+    box.innerHTML = '<div class="empty">加载中…</div>';
+    try {
+      const data = await api('/user/songlists');
+      const items = (data.items || []).filter((s) => s && s.id);
+      if (!items.length) { box.innerHTML = '<div class="empty">还没有歌单，在下面新建一个</div>'; return; }
+      box.innerHTML = items.map((s) => {
+        const cover = s.picurl || '';
+        const sub = [s.songnum ? s.songnum + ' 首' : '', s.creator || ''].filter(Boolean).join(' · ');
+        return '<button class="pl-row" type="button" data-dirid="' + esc(String(s.id)) + '" data-title="' + esc(s.title || '') + '">' +
+          '<span class="pl-cover"' + (cover ? ' data-cover="' + esc(cover) + '"' : '') + '></span>' +
+          '<span class="pl-info"><span class="pl-name">' + esc(s.title || '未命名歌单') + '</span>' +
+          '<span class="pl-sub">' + esc(sub) + '</span></span>' +
+          '<span class="pl-go">加入 ›</span></button>';
+      }).join('');
+      hydrateCovers(box);
+    } catch (err) {
+      if (err && err.code === 'not_logged_in') {
+        box.innerHTML = '<div class="pl-empty"><p>登录后可把歌曲加入 QQ 音乐歌单</p>' +
+          '<button class="btn btn-primary btn-sm" type="button" data-add-login="1">登录 QQ 音乐</button></div>';
+      } else {
+        box.innerHTML = '<div class="empty">歌单加载失败，稍后重试</div>';
+      }
+    }
+  }
+  async function addToSonglist(dirid, title) {
+    const mid = state.player.songmid;
+    if (!mid) return;
+    if (!state.loggedIn) { toast('请先登录 QQ 音乐', 'warn'); openLogin(); return; }
+    try {
+      await api('/user/songlist/add', { method: 'POST', body: { dirid: Number(dirid), songmids: [mid] } });
+      toast('已加入《' + (title || '歌单') + '》', 'success', 1800);
+      closeSheets();
+    } catch (err) {
+      if (err && err.code === 'not_logged_in') { toast('请先登录 QQ 音乐', 'warn'); openLogin(); }
+      else handleError(err);
+    }
+  }
+  async function createSonglistAndAdd() {
+    const input = el('new-list-name');
+    const name = ((input && input.value) || '').trim();
+    if (!name) { toast('请先输入歌单名称', 'warn'); return; }
+    if (!state.loggedIn) { toast('请先登录 QQ 音乐', 'warn'); openLogin(); return; }
+    try {
+      const data = await api('/user/songlist/create', { method: 'POST', body: { name } });
+      if (input) input.value = '';
+      const item = data.item || {};
+      if (item.dirid) await addToSonglist(item.dirid, item.name || name);
+      else { await loadAddSonglists(); toast('歌单已创建', 'success'); }
+    } catch (err) {
+      handleError(err);
+    }
   }
 
   /* ---------------- 绑定 ---------------- */
@@ -2835,7 +2933,7 @@ const Player = (() => {
       if (!btn) return;
       const act = btn.dataset.pf;
       if (act === 'fav') toggleFav();
-      else if (act === 'playlist') { el('add-queue-count').textContent = queueItems().length + ' 首'; openSheet('sheet-add'); }
+      else if (act === 'playlist') openAddSheet();
       else if (act === 'quality') { syncQuality(); openSheet('sheet-quality'); }
       else if (act === 'sync') { fillSyncSheet(); openSheet('sheet-sync'); }
     });
@@ -2950,7 +3048,19 @@ const Player = (() => {
       if (!song || !song.songmid) { toast('还没有可加入的歌曲', 'warn'); return; }
       const n = addSongsToQueue([song]);
       closeSheets();
-      if (n) toast('已加入播放列表', 'success', 1400);
+      if (n) toast('已加入本机播放队列', 'success', 1400);
+    });
+    const addList = el('add-songlists');
+    if (addList) addList.addEventListener('click', (ev) => {
+      if (ev.target.closest('[data-add-login]')) { openLogin(); return; }
+      const row = ev.target.closest('.pl-row');
+      if (row) addToSonglist(row.dataset.dirid, row.dataset.title || '');
+    });
+    const newListCreate = el('new-list-create');
+    if (newListCreate) newListCreate.addEventListener('click', createSonglistAndAdd);
+    const newListName = el('new-list-name');
+    if (newListName) newListName.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') { ev.preventDefault(); createSonglistAndAdd(); }
     });
     const relatedSwitch = el('related-switch');
     if (relatedSwitch) relatedSwitch.addEventListener('click', () => loadRelated(relatedKind === 'album' ? 'singer' : 'album'));

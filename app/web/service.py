@@ -905,6 +905,63 @@ class QQService(BlocksMixin):
         return items
 
     # ------------------------------------------------------------------
+    # 收藏 / 加入歌单（QQMusicApi 的写接口）
+    # ------------------------------------------------------------------
+    async def _song_info_pair(self, songmid: str) -> tuple[int, int]:
+        """把 songmid 换成 QQ 音乐写接口需要的 (songid, song_type)。"""
+        detail = await self.song_detail(songmid)
+        if not detail:
+            raise errors.AppError("未找到该歌曲", code="not_found", status_code=404)
+        songid = self._to_int(detail.get("songid"), 0)
+        if not songid:
+            raise errors.AppError("缺少歌曲 ID，无法写入歌单", code="bad_song")
+        return songid, self._to_int(detail.get("song_type", 1), 1)
+
+    async def is_favourite(self, songmid: str, max_songs: int = 250) -> bool:
+        """是否已收藏到「我喜欢」（最多翻 5 页，避免每次打开播放器都全量拉取）。"""
+        euin = self._euin()
+        for page in range(1, 6):
+            songs = await self.call(lambda c, p=page: c.user.get_fav_song(euin, page=p, num=50))
+            rows = self._find_list(songs, ("song", "songs", "songlist", "list", "items")) or []
+            for row in rows:
+                if str(self.song_summary(row).get("songmid") or "") == songmid:
+                    return True
+            if len(rows) < 50:
+                break
+        return False
+
+    async def like_song(self, songmid: str, like: bool = True) -> bool:
+        """收藏 / 取消收藏到「我喜欢」（dirid=201）。"""
+        info = [await self._song_info_pair(songmid)]
+        if like:
+            return bool(await self.call(lambda c: c.songlist.like_song(info)))
+        return bool(await self.call(lambda c: c.songlist.unlike_song(info)))
+
+    async def add_to_songlist(self, dirid: int, songmids: list[str]) -> bool:
+        """把一首或多首歌加进指定歌单（dirid 来自 /user/songlists）。"""
+        if dirid <= 0:
+            raise errors.BadRequestError("缺少歌单 ID")
+        mids = [m for m in (songmids or []) if m][:50]
+        if not mids:
+            raise errors.BadRequestError("缺少歌曲")
+        infos = [await self._song_info_pair(mid) for mid in mids]
+        return bool(await self.call(lambda c: c.songlist.add_songs(dirid, infos)))
+
+    async def create_songlist(self, name: str) -> dict[str, Any]:
+        """新建歌单，返回 dirid / id / name。"""
+        title = (name or "").strip()
+        if not title:
+            raise errors.BadRequestError("歌单名称不能为空")
+        if len(title) > 20:
+            raise errors.BadRequestError("歌单名称最多 20 个字")
+        response = await self.call(lambda c: c.songlist.create(title))
+        return {
+            "dirid": self._to_int(self._field(response, "dirid", default=0)),
+            "id": self._to_int(self._field(response, "id", default=0)),
+            "name": str(self._field(response, "name", default=title) or title),
+        }
+
+    # ------------------------------------------------------------------
     # 播放/下载直链（purl 需与 CDN 节点拼接）
     # ------------------------------------------------------------------
     async def cdn_host(self) -> str:

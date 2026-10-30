@@ -38,6 +38,20 @@ class UrlRequest(BaseModel):
     quality: str = ""
 
 
+class FavWriteRequest(BaseModel):
+    songmid: str
+    like: bool = True
+
+
+class SonglistAddRequest(BaseModel):
+    dirid: int
+    songmids: list[str] = []
+
+
+class SonglistCreateRequest(BaseModel):
+    name: str
+
+
 # --------------------------------------------------------------------------
 # 登录
 # --------------------------------------------------------------------------
@@ -202,6 +216,39 @@ async def user_songlists() -> dict[str, Any]:
         raise errors.NotLoggedInError()
     items = await service.favourite_songlists()
     return {"ok": True, "items": items}
+
+
+@router.get("/user/fav/check")
+async def fav_check(songmid: str = Query(..., min_length=1)) -> dict[str, Any]:
+    """当前歌曲是否已在「我喜欢」。"""
+    if not store.is_logged_in():
+        raise errors.NotLoggedInError()
+    return {"ok": True, "favourite": await service.is_favourite(songmid)}
+
+
+@router.post("/user/fav")
+async def fav_write(payload: FavWriteRequest) -> dict[str, Any]:
+    """收藏 / 取消收藏到「我喜欢」。"""
+    if not store.is_logged_in():
+        raise errors.NotLoggedInError()
+    changed = await service.like_song(payload.songmid, payload.like)
+    return {"ok": True, "favourite": payload.like, "changed": changed}
+
+
+@router.post("/user/songlist/add")
+async def songlist_add(payload: SonglistAddRequest) -> dict[str, Any]:
+    if not store.is_logged_in():
+        raise errors.NotLoggedInError()
+    changed = await service.add_to_songlist(payload.dirid, payload.songmids)
+    return {"ok": True, "changed": changed}
+
+
+@router.post("/user/songlist/create")
+async def songlist_create(payload: SonglistCreateRequest) -> dict[str, Any]:
+    if not store.is_logged_in():
+        raise errors.NotLoggedInError()
+    item = await service.create_songlist(payload.name)
+    return {"ok": True, "item": item}
 
 
 # --------------------------------------------------------------------------
