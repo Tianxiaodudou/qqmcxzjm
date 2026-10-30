@@ -2,7 +2,14 @@
 
 > 本文件由 `tools/ci/release_notes.py` 依据 `manifest` 的 `changelog` 字段生成，**请勿手工编辑**；每个版本的发行说明与安装包见 [Releases](https://github.com/Tianxiaodudou/qqmcxzjm/releases)。
 
-当前版本：**v1.9.0**
+当前版本：**v1.9.1**
+
+## v1.9.1
+
+- ①安卓客户端新增搜索页：输入歌名/歌手/专辑即可搜索（musicu.fcg 的 DoSearchForQQMusicDesktop，每页 30 首），结果列表显示歌名与「歌手 · 专辑」，点一下直接播放。
+- ②新增播放入口：点击后按 320k → 128k 顺序取 vkey 直链（music.vkey.GetVkey），用 Media3 ExoPlayer 播放，底部出现迷你播放条（歌名/歌手/播放暂停），切标签不中断。
+- ③拿不到地址时明确提示「可能需要会员或已下架」，不再静默失败。
+- ④无损（.mflac/.mgg 解密）、逐字歌词、下载到手机仍在后续版本补齐。
 
 ## v1.9.0
 
