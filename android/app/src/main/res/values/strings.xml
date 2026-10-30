@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">QQ音乐下载器</string>
+
+    <string name="dialog_title_first">连接飞牛 NAS</string>
+    <string name="dialog_title">服务器地址</string>
+    <string name="dialog_hint">192.168.1.10:5666</string>
+    <string name="dialog_tip">填飞牛 NAS 的访问地址（含端口）。应用会自动补上 %1$s。</string>
+    <string name="dialog_connect">连接</string>
+    <string name="dialog_cancel">取消</string>
+    <string name="dialog_quit">退出</string>
+    <string name="invalid_address">地址不正确，请检查后重试</string>
+
+    <string name="error_title">连不上服务器</string>
+    <string name="error_body">无法打开 %1$s\n%2$s</string>
+    <string name="retry">重试</string>
+    <string name="change_server">修改地址</string>
+    <string name="no_app">没有可以打开该链接的应用</string>
+
+    <string name="shortcut_server">服务器地址</string>
+    <string name="shortcut_reload">重新加载</string>
+</resources>

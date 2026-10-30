@@ -1,4 +1,4 @@
-name: Build FPK
+name: 构建发布包（FPK + APK）
 
 # 发版只打 tag：以前 push main 和 push tag 各触发一次，同一个提交会跑两遍。
 # 需要单独验证某个分支时，用 Actions 页面的 Run workflow（workflow_dispatch），
@@ -42,9 +42,78 @@ jobs:
       - name: C 加速解密库与纯 Python 等价性校验
         run: python tools/ci/test_c_accel.py
 
+  apk:
+    name: 打包 APK（安卓客户端）
+    needs: validate
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 读取版本号（与 FPK 同版本）
+        id: ver
+        run: echo "version=$(python3 tools/ci/release_notes.py --print-version)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+
+      # 固定签名：密钥以 base64 存在仓库 Secrets 里，每次构建都还原同一份，
+      # 所以新版本可以直接覆盖安装旧版本（签名一致才允许升级）。
+      - name: 还原签名密钥
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -eu
+          if [ -z "${KEYSTORE_B64}" ]; then
+            echo "::error::缺少 ANDROID_KEYSTORE_BASE64，无法产出可覆盖安装的正式包" >&2
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/signing"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/signing/release.p12"
+          keytool -list -v -keystore "$RUNNER_TEMP/signing/release.p12" -storetype PKCS12 \
+            -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" | grep -E "Alias name|SHA256"
+
+      - name: 构建 release APK
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/signing/release.p12
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: gradle --no-daemon --stacktrace assembleRelease -PappVersion="$VERSION"
+
+      - name: 校验签名与版本号
+        run: |
+          set -eu
+          APK="$(ls android/app/build/outputs/apk/release/*.apk | head -1)"
+          BT="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)"
+          "$BT/apksigner" verify --verbose --print-certs "$APK"
+          "$BT/aapt2" dump badging "$APK" | grep -E "^(package|sdkVersion|targetSdkVersion|application-label)"
+          "$BT/aapt2" dump badging "$APK" | grep -q "versionName='${{ steps.ver.outputs.version }}'"
+          echo "APK 校验通过"
+
+      - name: 按「版本号-应用名」重命名
+        run: mv android/app/build/outputs/apk/release/*.apk "${{ steps.ver.outputs.version }}-qqmusic-downloader.apk"
+
+      # 只在本 run 内传给后面的 build 作业，保留 1 天，避免像以前那样把 artifact 配额占满。
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: "*.apk"
+          retention-days: 1
+
   build:
     name: 打包 FPK
-    needs: validate
+    needs: [validate, apk]
     # 只在打 tag 时打包发布：推 main / 开 PR 只跑上面的 validate，避免同一提交被打包两遍
     # （v1.1.x~v1.4.1 期间 push(main) 与 push(tag) 各触发一次，每次都白打一份包）。
     # 需要在非 tag 场景手动出包时：Actions → Build FPK → Run workflow。
@@ -107,8 +176,15 @@ jobs:
           path: |
             *.fpk
             *.tar.gz
+            apk-dist/*.apk
           if-no-files-found: error
           retention-days: 3
+
+      - name: 取回 APK
+        uses: actions/download-artifact@v4
+        with:
+          name: apk
+          path: apk-dist
 
       - name: 生成发行说明（含提交记录与改动统计）
         if: startsWith(github.ref, 'refs/tags/v')
@@ -129,6 +205,7 @@ jobs:
           files: |
             *.fpk
             *.tar.gz
+            apk-dist/*.apk
           draft: false
           prerelease: false
           make_latest: true
