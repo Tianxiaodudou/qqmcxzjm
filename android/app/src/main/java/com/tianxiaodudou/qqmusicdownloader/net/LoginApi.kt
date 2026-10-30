@@ -56,7 +56,8 @@ object LoginApi {
             "&js_ver=20102616&js_type=1&pt_uistyle=40" +
             "&aid=" + APPID + "&daid=383&pt_3rd_aid=" + THIRD_AID + "&has_onekey=1"
         val text = QqClient.get(url, mapOf("Referer" to REFERER)).use { it.body?.string().orEmpty() }
-        val m = Regex("""ptuiCB\('(\d+)','\d+','([^']*)','\d+','([^']*)','([^']*)'\)""").find(text)
+        // 实际返回里第 5、6 个参数前可能带空格，例如 ptuiCB('66','0','','0','二维码未失效', '')
+        val m = Regex("""ptuiCB\('(\d+)','\d+','([^']*)','\d+','([^']*)',\s*'([^']*)'\)""").find(text)
             ?: throw QqError("无法解析扫码状态")
         val code = m.groupValues[1]
         val redirect = m.groupValues[2]
