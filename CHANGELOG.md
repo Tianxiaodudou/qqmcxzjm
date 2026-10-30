@@ -2,7 +2,13 @@
 
 > 本文件由 `tools/ci/release_notes.py` 依据 `manifest` 的 `changelog` 字段生成，**请勿手工编辑**；每个版本的发行说明与安装包见 [Releases](https://github.com/Tianxiaodudou/qqmcxzjm/releases)。
 
-当前版本：**v1.9.8**
+当前版本：**v1.9.9**
+
+## v1.9.9
+
+- ①下载完成后自动写入标签：歌名、歌手、专辑、内嵌歌词与封面（封面对齐 QQ 音乐 500x500 图），FLAC / MP3 / M4A / OGG 由 jaudiotagger 统一处理，系统音乐 App 与其他播放器看到的再不是文件名。
+- ②失败不影响音频落盘：标签写入单独 try/catch，写坏了文件照样可用。
+- ③保留 R8 压缩（jaudiotagger 反射用到的类已加 keep 规则）。
 
 ## v1.9.8
 
