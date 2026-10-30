@@ -4,12 +4,24 @@
 
 运行在飞牛 fnOS 上的 QQ 音乐下载器：登录后浏览推荐与私有歌单、搜索单曲/歌单，边听边看同步歌词；下载时自动选用账号可用的最高音质，把加密音频解密还原并把歌名、歌手、专辑、封面与歌词写入文件，输出可直接播放的成品到 NAS 指定目录。
 
+> QQ 音乐接口层基于开源项目 **[L-1124/QQMusicApi](https://github.com/L-1124/QQMusicApi)**（GPL-3.0-or-later），详见下方「依赖与致谢」。
+
 - 应用名（appname）：`qqmusic-downloader`
 - 桌面入口：应用中心 → QQ音乐下载器
 - 访问路径：统一网关 `https://<设备地址>/app/qqmusic-downloader/`
 - 许可证：GPL-3.0-or-later（本项目包含的 `app/qqmusic_api` 为 GPLv3-or-later，故整体以 GPLv3 发布）
 
 > 本页只写**当前版本（v1.7.2）的完整功能**，不记录历史版本；历史见 [CHANGELOG.md](CHANGELOG.md) 与 [Releases](https://github.com/Tianxiaodudou/qqmcxzjm/releases)。
+
+## 依赖与致谢
+
+本项目的 QQ 音乐接口层基于 **[L-1124/QQMusicApi](https://github.com/L-1124/QQMusicApi)**（GPL-3.0-or-later）：
+
+- 随包内置的 app/qqmusic_api 就是该项目的 Python 实现，提供登录（QQ / 微信扫码、手机验证码）、搜索、歌单、歌曲详情、歌词、播放直链，以及收藏（like_song / unlike_song）、加入歌单（add_songs）和新建歌单（create）等写接口。
+- 本项目的 app/web 后端调用其 Client / Credential 与各 modules，并在此基础上封装成 fnOS 应用所需的 HTTP API 与下载流程；解密、标签写入、任务队列等由本项目实现。
+- 上游项目地址：<https://github.com/L-1124/QQMusicApi>，许可证 GPL-3.0-or-later；本项目整体同样以 GPL-3.0-or-later 发布。
+
+感谢 L-1124 与 QQMusicApi 的贡献者。
 
 ## 功能
 
