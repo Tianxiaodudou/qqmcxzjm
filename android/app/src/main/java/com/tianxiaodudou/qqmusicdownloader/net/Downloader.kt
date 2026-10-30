@@ -70,6 +70,14 @@ object Downloader {
     }
 
     private fun export(context: Context, name: String, mime: String, src: File): String {
+        // 优先用户用系统文件选择器指定的目录
+        val tree = DirStore.get(context)
+        if (tree != null) return DirStore.write(context, tree, name, mime, src)
+        throw IllegalStateException("还没选下载目录：请到「我的 → 下载目录」选一个文件夹")
+    }
+
+    @Suppress("unused")
+    private fun exportLegacy(context: Context, name: String, mime: String, src: File): String {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val values = ContentValues().apply {
                 put(MediaStore.Audio.Media.DISPLAY_NAME, name)

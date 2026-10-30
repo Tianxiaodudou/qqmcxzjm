@@ -29,6 +29,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -37,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import com.tianxiaodudou.qqmusicdownloader.net.DirStore
 import com.tianxiaodudou.qqmusicdownloader.net.Downloader
 import com.tianxiaodudou.qqmusicdownloader.net.Lossless
 import com.tianxiaodudou.qqmusicdownloader.net.MusicApi
@@ -78,6 +81,14 @@ private fun MainTabs(session: Session, onLogout: () -> Unit) {
     var loading by remember { mutableStateOf(false) }
     var showPlayer by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    var dirLabel by remember { mutableStateOf(DirStore.get(context)?.lastPathSegment?.take(40) ?: "") }
+    val pickDir = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            DirStore.save(context, uri)
+            dirLabel = uri.lastPathSegment?.take(40) ?: "已选择"
+        }
+    }
 
     val player = remember { ExoPlayer.Builder(context).build() }
     DisposableEffect(Unit) {
@@ -148,7 +159,7 @@ private fun MainTabs(session: Session, onLogout: () -> Unit) {
                 Tab.Search -> SearchScreen(onPlay = { playSong(it) }, onDownload = { Downloader.enqueue(context, it) })
                 Tab.Library -> LibraryScreen(onPlay = { playSong(it) }, onDownload = { Downloader.enqueue(context, it) })
                 Tab.Downloads -> DownloadsScreen()
-                Tab.Mine -> MinePage(session, onLogout)
+                Tab.Mine -> MinePage(session, onLogout, dirLabel, onPickDir = { pickDir.launch(null) })
                 else -> Placeholder(tab.label)
             }
             val playing = nowPlaying
@@ -193,7 +204,7 @@ private fun Placeholder(label: String) {
 }
 
 @Composable
-private fun MinePage(session: Session, onLogout: () -> Unit) {
+private fun MinePage(session: Session, onLogout: () -> Unit, dirLabel: String, onPickDir: () -> Unit) {
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -207,7 +218,15 @@ private fun MinePage(session: Session, onLogout: () -> Unit) {
         )
         Spacer(Modifier.height(6.dp))
         Text("QQ 音乐 uin " + session.uin, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(18.dp))
+        Text(
+            if (dirLabel.isEmpty()) "下载目录：未选择" else "下载目录：" + dirLabel,
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(onClick = onPickDir) { Text("选择下载目录") }
+        Spacer(Modifier.height(18.dp))
         OutlinedButton(onClick = onLogout) { Text("退出登录") }
     }
 }
