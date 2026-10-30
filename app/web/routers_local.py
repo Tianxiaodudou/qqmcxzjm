@@ -7,7 +7,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -16,7 +18,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 
-from . import env, security, store
+from . import decrypt, env, security, store
 from .context import service
 
 _UA = (
@@ -449,6 +451,202 @@ async def local_cover(
     )
 
 
+
+# --------------------------------------------------------------------------
+# 无损试听：QQ 音乐下发的是加密的 .mflac / .mgg，浏览器无法直接解码。
+# 这里把整首下载下来，用下载链路同一套 QMC2 解密，写到缓存目录后按普通音频播放；
+# 同一首歌同一档位只解一次（之后秒开），最多保留 _PREVIEW_CACHE_MAX_FILES 首。
+# --------------------------------------------------------------------------
+_PREVIEW_CACHE_DIR = env.DATA_DIR / "preview-cache"
+_PREVIEW_CACHE_MAX_FILES = 8
+_PREVIEW_CACHE_MAX_BYTES = 800 * 1024 * 1024
+_PREVIEW_SOURCE_MAX_BYTES = 300 * 1024 * 1024
+_PREVIEW_SAFE = re.compile(r"[^A-Za-z0-9_-]")
+_PREVIEW_LOCKS: dict[str, asyncio.Lock] = {}
+
+
+def _preview_safe(value: str) -> str:
+    return _PREVIEW_SAFE.sub("_", value or "")[:120] or "song"
+
+
+def _preview_cached(songmid: str, quality: str) -> Path | None:
+    prefix = f"{_preview_safe(songmid)}-{_preview_safe(quality)}"
+    if not _PREVIEW_CACHE_DIR.is_dir():
+        return None
+    for path in _PREVIEW_CACHE_DIR.glob(prefix + ".*"):
+        if path.is_file() and path.suffix != ".part":
+            return path
+    return None
+
+
+def _prune_preview_cache() -> None:
+    try:
+        files = [
+            p
+            for p in _PREVIEW_CACHE_DIR.glob("*")
+            if p.is_file() and p.suffix != ".part"
+        ]
+    except OSError:
+        return
+    files.sort(key=lambda p: p.stat().st_mtime)
+    total = sum(p.stat().st_size for p in files)
+    while files and (
+        len(files) > _PREVIEW_CACHE_MAX_FILES or total > _PREVIEW_CACHE_MAX_BYTES
+    ):
+        victim = files.pop(0)
+        try:
+            total -= victim.stat().st_size
+            victim.unlink()
+        except OSError:
+            pass
+
+
+def _preview_lock(key: str) -> asyncio.Lock:
+    lock = _PREVIEW_LOCKS.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _PREVIEW_LOCKS[key] = lock
+    return lock
+
+
+async def _ensure_preview_file(songmid: str, quality: str, data: dict[str, Any]) -> Path:
+    cached = _preview_cached(songmid, quality)
+    if cached is not None:
+        return cached
+    key = f"{songmid}|{quality}"
+    async with _preview_lock(key):
+        cached = _preview_cached(songmid, quality)
+        if cached is not None:
+            return cached
+        url = str(data.get("url") or "")
+        if not url:
+            raise HTTPException(status_code=404, detail="未获取到音频地址")
+        headers = {
+            "User-Agent": _UA,
+            "Referer": "https://y.qq.com/",
+            "Accept": "*/*",
+        }
+        chunks: list[bytes] = []
+        total = 0
+        client = httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0, read=180.0), follow_redirects=True
+        )
+        try:
+            async with client.stream("GET", url, headers=headers) as response:
+                if response.status_code >= 400:
+                    raise HTTPException(
+                        status_code=502,
+                        detail=f"无损音源返回 {response.status_code}（会员或版权限制）",
+                    )
+                async for chunk in response.aiter_bytes(_CHUNK):
+                    total += len(chunk)
+                    if total > _PREVIEW_SOURCE_MAX_BYTES:
+                        raise HTTPException(status_code=413, detail="无损文件过大，无法在线解码")
+                    chunks.append(chunk)
+        except httpx.HTTPError as exc:  # noqa: BLE001
+            raise HTTPException(status_code=502, detail="无损音源下载失败，请稍后重试") from exc
+        finally:
+            await client.aclose()
+
+        raw = b"".join(chunks)
+        if not raw:
+            raise HTTPException(status_code=502, detail="无损音源为空")
+
+        def work() -> dict[str, Any]:
+            # 有些歌曲虽然标记为加密，实际返回的是普通 FLAC/MP3，先按文件头识别
+            if raw[:4] == b"fLaC":
+                return {"audio": raw, "ext": ".flac"}
+            if raw[:3] == b"ID3":
+                return {"audio": raw, "ext": ".mp3"}
+            return decrypt.decrypt_bytes(
+                raw,
+                str(data.get("ekey") or ""),
+                encrypted_hint=True,
+                suffix=str(data.get("ext") or ""),
+            )
+
+        try:
+            result = await asyncio.to_thread(work)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "无损试听解码失败：%s（%s）",
+                security.sanitize_log(songmid),
+                security.sanitize_log(str(exc)),
+            )
+            raise HTTPException(status_code=502, detail=f"无损解码失败：{exc}") from exc
+
+        audio = bytes(result.get("audio") or b"")
+        ext = str(result.get("ext") or ".flac")
+        if not ext.startswith("."):
+            ext = "." + ext
+        if not audio:
+            raise HTTPException(status_code=502, detail="无损解码结果为空")
+
+        _PREVIEW_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        path = _PREVIEW_CACHE_DIR / (
+            f"{_preview_safe(songmid)}-{_preview_safe(quality)}{ext}"
+        )
+        temp = path.with_name(path.name + ".part")
+        temp.write_bytes(audio)
+        os.replace(temp, path)
+        _prune_preview_cache()
+        logger.info(
+            "无损试听缓存：%s（%s，%s）",
+            security.sanitize_log(songmid),
+            ext,
+            _fmt_size(len(audio)),
+        )
+        return path
+
+
+def _preview_file_response(request: Request, file: Path, label: str) -> StreamingResponse:
+    size = file.stat().st_size
+    media_type = AUDIO_MIME.get(file.suffix.lower(), "application/octet-stream")
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "private, max-age=0, must-revalidate",
+        "Content-Disposition": "inline",
+    }
+    start, end = 0, max(0, size - 1)
+    status = 200
+    range_header = (request.headers.get("range") or "").strip()
+    if range_header:
+        matched = _RANGE_RE.fullmatch(range_header)
+        if matched:
+            first, last = matched.group(1), matched.group(2)
+            if first:
+                start = int(first)
+                if last:
+                    end = min(int(last), size - 1)
+            elif last:  # bytes=-N 取最后 N 字节
+                start = max(0, size - int(last))
+            if start > end or start >= size:
+                return Response(
+                    status_code=416,
+                    headers={"Content-Range": f"bytes */{size}", "Accept-Ranges": "bytes"},
+                )
+            status = 206
+            headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+    length = end - start + 1
+    headers["Content-Length"] = str(length)
+
+    def iter_file():
+        with file.open("rb") as handle:
+            handle.seek(start)
+            remaining = length
+            while remaining > 0:
+                chunk = handle.read(min(_CHUNK, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                yield chunk
+
+    logger.info("%s：%s（%s 字节，range=%s）", label, file.name, size, range_header or "-")
+    return StreamingResponse(
+        iter_file(), status_code=status, media_type=media_type, headers=headers
+    )
+
+
 # --------------------------------------------------------------------------
 # 在线试听：同源代理
 # QQ 音乐直链是 `http://<cdn-ip>/...`（且带 vkey 防盗链），在 https 页面里会被
@@ -465,6 +663,10 @@ async def preview_stream(
     url = str(data.get("url") or "")
     if not url:
         raise HTTPException(status_code=404, detail="未获取到试听地址")
+    # 无损（.mflac/.mgg）浏览器解不了：先在服务端解密并缓存，再按普通音频返回
+    if data.get("encrypted"):
+        cached = await _ensure_preview_file(songmid, quality, data)
+        return _preview_file_response(request, cached, f"无损试听 {songmid}")
     headers = {
         "User-Agent": _UA,
         "Referer": "https://y.qq.com/",

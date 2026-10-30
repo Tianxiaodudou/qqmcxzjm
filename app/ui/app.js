@@ -1957,7 +1957,7 @@ const FAV_KEY = 'qqmd.fav.v1';
 const QUALITIES = [
   { key: 'mp3_128', label: '标准', sub: 'MP3 128K · 省流量' },
   { key: 'mp3_320', label: '高品质', sub: 'MP3 320K · 默认' },
-  { key: 'flac', label: '无损', sub: 'SQ 无损 FLAC · 需要会员' },
+  { key: 'flac', label: '无损', sub: 'SQ 无损 FLAC · 需要会员，首次播放需解码' },
 ];
 
 function readJson(key, fallback) {
@@ -2136,7 +2136,9 @@ const Player = (() => {
     };
     a.addEventListener('loadedmetadata', once);
     a.load();
-    hint('正在切换音质…');
+    hint(quality === 'flac'
+      ? '正在解码无损音频（首次需要几秒，之后会缓存）…'
+      : '正在切换音质…');
   }
 
   /* ---------------- 歌词同步偏移 ---------------- */
