@@ -1937,9 +1937,70 @@ function parseLrc(text) {
 
 function mergeTranslation(main, trans) {
   if (!trans.length) return main;
-  const map = new Map();
-  trans.forEach((line) => map.set(Math.round(line.time * 10), line.text));
-  return main.map((line) => ({ ...line, trans: map.get(Math.round(line.time * 10)) || '' }));
+  return main.map((line) => {
+    let best = '';
+    let bestDiff = 0.6;
+    trans.forEach((t) => {
+      const diff = Math.abs(t.time - line.time);
+      if (diff <= bestDiff) { bestDiff = diff; best = t.text; }
+    });
+    return { ...line, trans: best };
+  });
+}
+
+/* QRC（逐字歌词）：QQ 音乐下发的是 3DES + zlib 加密的 XML，服务端已解密，
+   这里只负责取出 LyricContent 并解析成「行 + 字级时间」，用于逐字变色 */
+function parseQrc(raw) {
+  let text = String(raw || '');
+  if (!text) return [];
+  const at = text.indexOf('LyricContent="');
+  if (at >= 0) {
+    text = text.slice(at + 14);
+    const end = text.indexOf('"/>');
+    if (end > 0) text = text.slice(0, end);
+  }
+  text = text
+    .replace(/&#10;|&#xA;|&#xa;/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+  const out = [];
+  text.split(/\r?\n/).forEach((row) => {
+    const m = row.match(/^\[(\d+),(\d+)\]([\s\S]*)$/);
+    if (!m) return;
+    const lineStart = Number(m[1]);
+    const body = m[3];
+    const rawWords = [];
+    let joined = '';
+    const re = /([^()]*)\((\d+),(\d+)\)/g;
+    let hit;
+    while ((hit = re.exec(body))) {
+      const chunk = hit[1] || '';
+      joined += chunk;
+      rawWords.push({ text: chunk, start: Number(hit[2]), dur: Number(hit[3]) });
+    }
+    const plain = joined.trim();
+    if (!plain) return;
+    const relative = rawWords.length > 0 && rawWords[0].start < lineStart;
+    const words = [];
+    rawWords.forEach((w) => {
+      if (!w.text) return;
+      const abs = relative ? lineStart + w.start : w.start;
+      words.push({ t: abs / 1000, d: Math.max(0.06, w.dur / 1000), len: w.text.length });
+    });
+    out.push(words.length ? { time: lineStart / 1000, text: plain, words } : { time: lineStart / 1000, text: plain });
+  });
+  return out.sort((a, b) => a.time - b.time);
+}
+
+/* 优先用逐字歌词，没有就退回普通 LRC */
+function buildLyrics(data) {
+  const qrc = parseQrc((data && data.qrc) || '');
+  const main = qrc.length ? qrc : parseLrc((data && data.lyric) || '');
+  return mergeTranslation(main, parseLrc((data && data.translation) || ''));
 }
 
 /* 播放器 v1.7：沉浸式全屏播放页
@@ -2455,8 +2516,21 @@ const Player = (() => {
     if (!active) return;
     const start = lines[idx].time;
     const end = lines[idx + 1] ? lines[idx + 1].time : start + 4;
-    const p = Math.max(0, Math.min(100, ((now - start) / Math.max(0.4, end - start)) * 100));
-    active.style.setProperty('--p', p.toFixed(2) + '%');
+    let p = Math.max(0, Math.min(100, ((now - start) / Math.max(0.4, end - start)) * 100));
+    let words = lines[idx].words;
+    /* 有字级时间戳时按字推进，避免「整行匀速扫」导致第一个字之后对不上 */
+    if (words && words.length) {
+      let done = 0;
+      let total = 0;
+      for (let i = 0; i < words.length; i += 1) {
+        const w = words[i];
+        total += w.len;
+        if (now >= w.t + w.d) done += w.len;
+        else if (now > w.t) done += w.len * ((now - w.t) / Math.max(0.05, w.d));
+      }
+      if (total) p = (done / total) * 100;
+    }
+    active.style.setProperty('--p', Math.max(0, Math.min(100, p)).toFixed(2) + '%');
   }
   /* 播放中按帧推进：进度条与歌词扫色都以 ~60fps 前进，避免 timeupdate 的 4Hz 台阶感 */
   function paintProgress() {
@@ -3146,7 +3220,7 @@ const Player = (() => {
     hint('正在重新获取歌词…');
     try {
       const data = await api('/song/' + encodeURIComponent(mid) + '/lyric', { query: { trans: 1 } });
-      const merged = mergeTranslation(parseLrc(data.lyric), parseLrc(data.translation));
+      const merged = buildLyrics(data);
       state.player.lyrics = merged;
       lines = merged;
       renderLyric();
@@ -3266,7 +3340,7 @@ async function openPlayer(songmid, songList = [], opts = {}) {
   }
   try {
     const lyricData = await api(`/song/${encodeURIComponent(songmid)}/lyric`, { query: { trans: 1 } });
-    const merged = mergeTranslation(parseLrc(lyricData.lyric), parseLrc(lyricData.translation));
+    const merged = buildLyrics(lyricData);
     state.player.lyrics = merged;
     Player.update({ lines: merged });
   } catch (err) {
@@ -3279,7 +3353,7 @@ async function playLocal(songmid) {
   if (!songmid) return;
   try {
     const data = await withLoading(() => api('/local/meta', { query: { songmid } }));
-    const merged = mergeTranslation(parseLrc(data.lyric), parseLrc(data.translation));
+    const merged = buildLyrics(data);
     state.player.songmid = songmid;
     state.player.lyrics = merged;
     state.play = { context: [], index: -1, source: 'local', songmid };

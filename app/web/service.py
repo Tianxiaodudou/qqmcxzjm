@@ -712,9 +712,10 @@ class QQService(BlocksMixin):
         return result
 
     async def song_lyric(self, value: int | str, trans: bool = True) -> dict[str, str]:
-        response = await self.call(lambda c: c.lyric.get_lyric(value, trans=trans))
+        response = await self.call(lambda c: c.lyric.get_lyric(value, trans=trans, qrc=True))
         return {
             "lyric": str(self._field(response, "lyric", default="")),
+            "qrc": str(self._field(response, "qrc", default="")),
             "translation": str(self._field(response, "trans", "translation", default="")),
             "roma": str(self._field(response, "roma", default="")),
         }

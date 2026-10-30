@@ -2,7 +2,12 @@
 
 > 本文件由 `tools/ci/release_notes.py` 依据 `manifest` 的 `changelog` 字段生成，**请勿手工编辑**；每个版本的发行说明与安装包见 [Releases](https://github.com/Tianxiaodudou/qqmcxzjm/releases)。
 
-当前版本：**v1.7.4**
+当前版本：**v1.7.5**
+
+## v1.7.5
+
+- ①播放页歌词升级为逐字时间轴：歌词接口同时取 QQ 音乐的 QRC 逐字歌词（3DES + zlib 解密由内置 QQMusicApi 完成），每个字/词按自己的起止时间染色，不再是整行匀速扫，所以第一个字之后也不会越拖越偏；没有逐字歌词的歌曲自动回退到普通 LRC 按行推进。
+- ②翻译按时间就近匹配（±0.6 秒），不再要求时间戳完全相同，逐字歌词也能带上翻译。
 
 ## v1.7.4
 

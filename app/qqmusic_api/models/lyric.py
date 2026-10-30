@@ -14,6 +14,7 @@ class GetLyricResponse(Response):
     Attributes:
         songid: 歌曲 ID.
         lyric: 原始歌词内容.
+        qrc: 逐字歌词（QRC）内容，部分歌曲为空.
         trans: 翻译歌词内容.
         roma: 罗马音歌词内容.
         singing_annotations: 助唱标注歌词内容.
@@ -29,6 +30,7 @@ class GetLyricResponse(Response):
 
     songid: int = Field(validation_alias="songID")
     lyric: str
+    qrc: str = ""
     trans: str = ""
     roma: str = ""
     singing_annotations_lyric: str = Field(default="", validation_alias="singingAnnotationsLyric")
@@ -44,7 +46,7 @@ class GetLyricResponse(Response):
     @model_validator(mode="before")
     @classmethod
     def _decrypt_lyrics(cls, data: dict) -> dict:
-        target_fields = ("lyric", "trans", "roma", "singingAnnotationsLyric")
+        target_fields = ("lyric", "qrc", "trans", "roma", "singingAnnotationsLyric")
         for field in target_fields:
             value = data.get(field)
             if value and isinstance(value, str):
