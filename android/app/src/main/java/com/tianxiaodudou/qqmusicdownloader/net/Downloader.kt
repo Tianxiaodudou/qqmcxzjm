@@ -59,7 +59,9 @@ object Downloader {
                     ext = "mp3"
                     mime = "audio/mpeg"
                 }
-                update(song.mid) { it.copy(progress = 70) }
+                update(song.mid) { it.copy(progress = 70, state = "写标签") }
+                runCatching { Tagger.tag(app, src!!, song, Tagger.toLrc(song.mid)) }
+                update(song.mid) { it.copy(progress = 90, state = "下载中") }
                 val name = safeName(song.name) + "_" + safeName(song.singers) + "_" + song.mid + "." + ext
                 val saved = export(app, name, mime, src!!)
                 update(song.mid) { it.copy(state = "完成", progress = 100, path = saved) }

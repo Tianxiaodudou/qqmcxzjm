@@ -74,6 +74,8 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("androidx.media3:media3-exoplayer:1.4.1")
+    implementation("net.jthink:jaudiotagger:3.0.1")
+    implementation("org.slf4j:slf4j-nop:2.0.13")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")

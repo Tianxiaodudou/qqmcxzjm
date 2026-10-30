@@ -1,4 +1,8 @@
-# 纯 WebView 外壳，没有反射与 JS 桥，默认规则足够；
-# 保留行号便于线上崩溃回溯。
+# 纯 Compose 应用，保留行号便于回溯
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
+
+# jaudiotagger 用反射加载标签读写器与 artwork 实现，必须整体保留
+-keep class org.jaudiotagger.** { *; }
+-dontwarn org.jaudiotagger.**
+-dontwarn org.slf4j.**
