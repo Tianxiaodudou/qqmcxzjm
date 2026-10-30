@@ -2,7 +2,12 @@
 
 > 本文件由 `tools/ci/release_notes.py` 依据 `manifest` 的 `changelog` 字段生成，**请勿手工编辑**；每个版本的发行说明与安装包见 [Releases](https://github.com/Tianxiaodudou/qqmcxzjm/releases)。
 
-当前版本：**v1.10.1**
+当前版本：**v1.10.2**
+
+## v1.10.2
+
+- ①首页新增「猜你喜欢」：调用 music.radioProxy.MbTrackRadioSvr 的 get_radio_track（id=99），一次取 30 首推荐歌曲，可直接播放或下载。
+- ②首页结构变成「猜你喜欢 + 全部排行榜」，点进去都是歌曲列表。
 
 ## v1.10.1
 
