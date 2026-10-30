@@ -106,8 +106,9 @@ object QqClient {
 
     fun get(url: String, headers: Map<String, String>, followRedirects: Boolean = true): okhttp3.Response {
         val b = Request.Builder().url(url).header("User-Agent", UA)
+        // 默认 Referer 只在不覆盖调用方的时候补，否则 ptlogin 这类接口会被改成 y.qq.com 而失败
+        if (!headers.keys.any { it.equals("Referer", true) }) b.header("Referer", "https://y.qq.com/")
         for ((k, v) in headers) b.header(k, v)
-        b.header("Referer", "https://y.qq.com/")
         val req = b.build()
         val client = if (followRedirects) http else http.newBuilder().followRedirects(false).followSslRedirects(false).build()
         return client.newCall(req).execute()

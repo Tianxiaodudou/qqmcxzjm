@@ -90,13 +90,15 @@ object LoginApi {
             "&j_later=0&low_login_hour=0&regmaster=0&pt_login_type=3" +
             "&pt_aid=0&pt_aaid=16&pt_light=0&pt_3rd_aid=" + THIRD_AID
         var pSkey = ""
+        var status = 0
         QqClient.get(checkUrl, mapOf("Referer" to REFERER), followRedirects = false).use { resp ->
+            status = resp.code
             for (h in resp.headers("Set-Cookie")) {
                 val i = h.indexOf("p_skey=")
                 if (i >= 0) pSkey = h.substring(i + 7).substringBefore(';')
             }
         }
-        if (pSkey.isEmpty()) throw QqError("未拿到 p_skey")
+        if (pSkey.isEmpty()) throw QqError("check_sig 返回 " + status + " 但没有 p_skey（授权链接可能已过期，重新扫码试试）")
 
         val form = FormBody.Builder()
             .add("response_type", "code")
@@ -114,12 +116,14 @@ object LoginApi {
             .add("ui", java.util.UUID.randomUUID().toString())
             .build()
         var code = ""
+        var oauthStatus = 0
         QqClient.post("https://graph.qq.com/oauth2.0/authorize", form, mapOf("Referer" to REFERER)).use { resp ->
+            oauthStatus = resp.code
             val location = resp.header("Location").orEmpty()
             val i = location.indexOf("code=")
             if (i >= 0) code = location.substring(i + 5).substringBefore('&')
         }
-        if (code.isEmpty()) throw QqError("授权失败，未拿到 code")
+        if (code.isEmpty()) throw QqError("oauth2 授权返回 " + oauthStatus + "，没拿到 code")
 
         val data = QqClient.cgi(
             "QQConnectLogin.LoginServer",
