@@ -8,6 +8,7 @@ import java.io.File
 object Lossless {
 
     fun playableFile(context: Context, song: MusicApi.Song): File? {
+        if (Settings.quality(context) == Settings.Quality.STANDARD) return null
         val cached = File(cacheDir(context), song.mid + ".flac")
         if (cached.exists() && cached.length() > 1024) return cached
         val pair = MusicApi.lossless(song) ?: return null

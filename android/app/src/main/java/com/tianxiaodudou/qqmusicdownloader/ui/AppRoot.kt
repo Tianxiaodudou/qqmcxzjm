@@ -3,6 +3,7 @@ package com.tianxiaodudou.qqmusicdownloader.ui
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
@@ -39,7 +41,9 @@ import androidx.compose.ui.unit.sp
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import com.tianxiaodudou.qqmusicdownloader.BuildConfig
 import com.tianxiaodudou.qqmusicdownloader.net.DirStore
+import com.tianxiaodudou.qqmusicdownloader.net.Settings
 import com.tianxiaodudou.qqmusicdownloader.net.Downloader
 import com.tianxiaodudou.qqmusicdownloader.net.Lossless
 import com.tianxiaodudou.qqmusicdownloader.net.MusicApi
@@ -206,28 +210,58 @@ private fun Placeholder(label: String) {
 
 @Composable
 private fun MinePage(session: Session, onLogout: () -> Unit, dirLabel: String, onPickDir: () -> Unit) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
+    val context = LocalContext.current
+    var quality by remember { mutableStateOf(Settings.quality(context)) }
+    var toast by remember { mutableStateOf("") }
+
+    Column(modifier = Modifier.fillMaxSize().padding(20.dp)) {
         Text(
             text = session.nickname.ifEmpty { "已登录" },
             fontSize = 20.sp,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onBackground,
         )
-        Spacer(Modifier.height(6.dp))
-        Text("QQ 音乐 uin " + session.uin, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("QQ 音乐 uin " + session.uin, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+        Spacer(Modifier.height(22.dp))
+        Text("播放音质", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Settings.Quality.entries.forEach { q ->
+            Row(
+                Modifier.fillMaxWidth().clickable {
+                    quality = q
+                    Settings.setQuality(context, q)
+                }.padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(if (quality == q) "● " else "○ ", color = MaterialTheme.colorScheme.primary)
+                Text(q.label, fontSize = 13.sp)
+            }
+        }
+
         Spacer(Modifier.height(18.dp))
+        Text("下载", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         Text(
-            if (dirLabel.isEmpty()) "下载目录：未选择" else "下载目录：" + dirLabel,
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            if (dirLabel.isEmpty()) "目录：未选择" else "目录：" + dirLabel,
+            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(vertical = 6.dp),
         )
-        Spacer(Modifier.height(8.dp))
-        OutlinedButton(onClick = onPickDir) { Text("选择下载目录") }
-        Spacer(Modifier.height(18.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(onClick = onPickDir) { Text("选择下载目录") }
+            Spacer(Modifier.width(10.dp))
+            OutlinedButton(onClick = {
+                val freed = Settings.clearCache(context)
+                toast = "已清理 " + (freed / 1024 / 1024) + " MB 缓存"
+            }) { Text("清理缓存") }
+        }
+
+        if (toast.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Text(toast, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+
+        Spacer(Modifier.weight(1f))
+        Text("QQ音乐下载器 " + BuildConfig.VERSION_NAME, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(10.dp))
         OutlinedButton(onClick = onLogout) { Text("退出登录") }
     }
 }
