@@ -127,6 +127,82 @@ object LoginApi {
         return Session(musicid, musickey, nick)
     }
 
+
+    // ---------------- 微信扫码 ----------------
+
+    class WxQr(val image: ByteArray, val uuid: String)
+
+    fun wxQrShow(): WxQr {
+        val url = "https://open.weixin.qq.com/connect/qrconnect" +
+            "?appid=wx48db31d50e334801" +
+            "&redirect_uri=" + enc("https://y.qq.com/portal/wx_redirect.html?login_type=2&surl=https://y.qq.com/") +
+            "&response_type=code&scope=snsapi_login&state=STATE" +
+            "&href=" + enc("https://y.qq.com/mediastyle/music_v17/src/css/popup_wechat.css#wechat_redirect")
+        val html = QqClient.get(url, mapOf("Referer" to "https://y.qq.com/")).use { it.body?.string().orEmpty() }
+        val uuid = Regex("""uuid\s*=\s*["']([0-9a-zA-Z_-]{10,})["']""").find(html)?.groupValues?.get(1)
+            ?: throw QqError("获取微信 uuid 失败")
+        val img = QqClient.get(
+            "https://open.weixin.qq.com/connect/qrcode/" + uuid,
+            mapOf("Referer" to "https://open.weixin.qq.com/connect/qrconnect"),
+        ).use { it.body?.bytes() ?: throw QqError("微信二维码下载失败") }
+        return WxQr(img, uuid)
+    }
+
+    fun wxPoll(uuid: String): State {
+        val url = "https://lp.open.weixin.qq.com/connect/l/qrconnect?uuid=" + uuid + "&_=" + System.currentTimeMillis()
+        val text = QqClient.get(url, mapOf("Referer" to "https://open.weixin.qq.com/")).use { it.body?.string().orEmpty() }
+        val err = Regex("""wx_errcode\s*=\s*(\d+)""").find(text)?.groupValues?.get(1) ?: return State.Waiting
+        val code = Regex("""wx_code\s*=\s*'([^']*)'""").find(text)?.groupValues?.get(1).orEmpty()
+        return when (err) {
+            "405" -> {
+                if (code.isEmpty()) State.Waiting else State.LoggedIn(wxAuthorize(code))
+            }
+            "404" -> State.Scanned
+            "403" -> State.Expired
+            else -> State.Waiting
+        }
+    }
+
+    private fun wxAuthorize(code: String): Session {
+        val data = QqClient.cgi(
+            "music.login.LoginServer",
+            "Login",
+            JSONObject().put("code", code).put("strAppid", "wx48db31d50e334801"),
+            mapOf("tmeLoginType" to "1"),
+        )
+        return toSession(data, "微信用户")
+    }
+
+    // ---------------- 手机验证码 ----------------
+
+    fun sendSms(phone: String): String {
+        val p = JSONObject().put("tmeAppid", "qqmusic").put("areaCode", "86").put("phoneNo", phone)
+        val data = runCatching {
+            QqClient.cgi("music.login.LoginServer", "SendPhoneAuthCode", p, mapOf("tmeLoginMethod" to "3"))
+        }.getOrElse { e ->
+            val msg = e.message ?: ""
+            return if (msg.contains("104604")) "发送太频繁，稍后再试" else "发送失败：" + msg
+        }
+        return if (data.optInt("code", 0) == 0) "验证码已发送" else "发送失败：" + data.optString("errMsg", "")
+    }
+
+    fun smsLogin(phone: String, code: String): Session {
+        val p = JSONObject().put("code", code).put("loginMode", 1).put("phoneNo", phone)
+        val data = QqClient.cgi(
+            "music.login.LoginServer",
+            "Login",
+            p,
+            mapOf("tmeLoginMethod" to "3", "tmeLoginType" to "0"),
+        )
+        return toSession(data, "手机用户")
+    }
+
+    private fun toSession(data: JSONObject, fallbackNick: String): Session {
+        val musicid = pick(data, "musicid", "musicId", "uin") ?: throw QqError("登录返回缺少 musicid")
+        val musickey = pick(data, "musickey", "musicKey", "qm_keyst") ?: throw QqError("登录返回缺少 musickey")
+        return Session(musicid, musickey, fallbackNick)
+    }
+
     private fun pick(o: JSONObject, vararg keys: String): String? {
         for (k in keys) {
             val v = o.opt(k)
