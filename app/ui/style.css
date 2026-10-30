@@ -1453,3 +1453,6 @@ body.has-player .toast-wrap {
 
 .pf-back { width: 44px; height: 44px; }
 
+
+.mp-btn:disabled { opacity: .3; }
+

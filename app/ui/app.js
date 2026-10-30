@@ -3229,22 +3229,20 @@ function syncMiniPlayer() {
   if (!box) return;
   const cur = state.player.song && state.play.songmid ? state.player.song : null;
   const n = queueItems().length;
-  if (!cur && !n) {
-    box.classList.add('hidden');
-    document.body.classList.remove('has-mini');
-    return;
-  }
+  /* 常驻：没有在播的歌时它就是「播放列表 / 播放器」入口 */
   box.classList.remove('hidden');
   document.body.classList.add('has-mini');
   const name = $('#mp-name');
-  if (name) name.textContent = cur ? (cur.name || '播放中') : '播放列表';
+  if (name) name.textContent = cur ? (cur.name || '播放中') : (n ? '播放列表' : '播放器');
   const sub = $('#mp-sub');
-  if (sub) sub.textContent = cur ? (cur.singer || '未知歌手') : (n + ' 首 · 点开查看');
+  if (sub) sub.textContent = cur ? (cur.singer || '未知歌手') : (n ? (n + ' 首 · 点开查看') : '还没有歌曲');
   const cover = cur && cur.album_pmid ? coverUrl(cur.album_pmid, 300) : '';
   const cov = $('#mp-cover');
   if (cov) cov.style.backgroundImage = cover ? 'url("' + cover + '")' : '';
   const toggle = $('#mp-toggle');
   if (toggle) toggle.textContent = Player.isPlaying() ? '❚❚' : '▶';
+  const next = $('#mp-next');
+  if (next) next.disabled = !(state.play.context || []).length;
   const a = $('#pw-audio');
   const pct = a && Number.isFinite(a.duration) && a.duration ? (a.currentTime / a.duration) * 100 : 0;
   box.style.setProperty('--p', pct.toFixed(2) + '%');
@@ -3501,7 +3499,10 @@ function bindQueueControls() {
     if (state.play.songmid && Player.hasAudio()) Player.reopen();
     else openQueue();
   });
-  on('#mp-toggle', 'click', function () { Player.toggle(); });
+  on('#mp-toggle', 'click', function () {
+    if (!Player.hasAudio() && !queueItems().length) { openQueue(); return; }
+    Player.toggle();
+  });
   on('#mp-next', 'click', function () { playerStep(1, false); });
   bindQueueDrag();
   on('#pw-prev', 'click', function () { playerStep(-1, false); });
