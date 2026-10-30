@@ -2,7 +2,14 @@
 
 > 本文件由 `tools/ci/release_notes.py` 依据 `manifest` 的 `changelog` 字段生成，**请勿手工编辑**；每个版本的发行说明与安装包见 [Releases](https://github.com/Tianxiaodudou/qqmcxzjm/releases)。
 
-当前版本：**v1.8.0**
+当前版本：**v1.9.0**
+
+## v1.9.0
+
+- ①安卓客户端改为**完全独立**的原生 App：不再连 NAS、不再套网页，登录、接口、播放、下载全部在手机上完成（当前已完成扫码登录与账号管理，搜索/播放/下载在后续版本陆续补齐）。
+- ②全新的 Compose / Material3 界面与深色主题，底部五个标签（首页 / 搜索 / 歌单 / 下载 / 我的），「我的」显示当前账号并可退出登录。
+- ③自动获取 QQ 登录二维码、2 秒轮询扫码状态（未扫 / 已扫待确认 / 过期自动刷新）、扫码成功后台完成 ptlogin → oauth2 → QQLogin 三步换取 musickey，登录态与 cookie 持久化在手机本地，杀掉进程重开不用重复扫码。
+- ④接口走 musicu.fcg 的 web comm（ct=24 / yqq.json），与网页端同源，后续功能直接复用同一套调用方式。
 
 ## v1.8.0
 
