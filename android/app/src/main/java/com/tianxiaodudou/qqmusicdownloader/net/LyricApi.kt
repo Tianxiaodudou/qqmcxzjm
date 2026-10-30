@@ -41,9 +41,12 @@ object LyricApi {
         }.getOrNull() ?: return emptyList()
 
         val lyric = data.optString("lyric").orEmpty()
+        val lrc = data.optString("lrc").orEmpty()
         val trans = data.optString("trans").orEmpty()
         val qrcXml = qrcXmlOf(lyric)
-        val lines = if (qrcXml != null) parseQrc(qrcXml) else parseLrc(decodeLrc(lyric))
+        // QRC 用的是 QQ 自己的 3DES 变体（与标准 DESede 不同），还没移植完；
+        // 拿不到逐字歌词时用接口同时下发的普通 LRC，至少保证有歌词、能跟着滚。
+        val lines = if (qrcXml != null) parseQrc(qrcXml) else parseLrc(decodeLrc(lrc.ifEmpty { lyric }))
         if (lines.isEmpty()) return lines
         val tr = parseLrc(decodeLrc(trans))
         return attachTranslation(lines, tr)
