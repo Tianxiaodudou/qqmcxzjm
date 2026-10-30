@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tianxiaodudou.qqmusicdownloader.net.MusicApi
+import com.tianxiaodudou.qqmusicdownloader.net.RecommendApi
 import com.tianxiaodudou.qqmusicdownloader.net.TopApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -37,13 +38,20 @@ fun HomeScreen(onPlay: (MusicApi.Song) -> Unit, onDownload: (MusicApi.Song) -> U
     var charts by remember { mutableStateOf<List<TopApi.Chart>?>(null) }
     var opened by remember { mutableStateOf<TopApi.Chart?>(null) }
     var songs by remember { mutableStateOf<List<MusicApi.Song>?>(null) }
+    var guess by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         val r = withContext(Dispatchers.IO) { runCatching { TopApi.charts() } }
         r.onSuccess { charts = it }.onFailure { error = it.message ?: "榜单加载失败"; charts = emptyList() }
     }
-    LaunchedEffect(opened) {
+    LaunchedEffect(opened, guess) {
+        if (guess) {
+            songs = null
+            val r = withContext(Dispatchers.IO) { runCatching { RecommendApi.guess() } }
+            r.onSuccess { songs = it }.onFailure { error = it.message ?: "推荐加载失败"; songs = emptyList() }
+            return@LaunchedEffect
+        }
         val c = opened ?: return@LaunchedEffect
         songs = null
         val r = withContext(Dispatchers.IO) { runCatching { TopApi.songs(c) } }
@@ -51,7 +59,7 @@ fun HomeScreen(onPlay: (MusicApi.Song) -> Unit, onDownload: (MusicApi.Song) -> U
     }
 
     val current = opened
-    if (current == null) {
+    if (current == null && !guess) {
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth().padding(16.dp)) {
                 Text("排行榜", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
@@ -65,6 +73,13 @@ fun HomeScreen(onPlay: (MusicApi.Song) -> Unit, onDownload: (MusicApi.Song) -> U
                 }
             } else {
                 LazyColumn(Modifier.fillMaxSize()) {
+                    item {
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                                .clickable { guess = true }
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                        ) { Text("猜你喜欢", fontSize = 15.sp) }
+                    }
                     items(list) { c ->
                         Row(
                             Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
@@ -81,8 +96,11 @@ fun HomeScreen(onPlay: (MusicApi.Song) -> Unit, onDownload: (MusicApi.Song) -> U
     } else {
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { opened = null }) { Text("返回") }
-                Text(current.name, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                TextButton(onClick = { opened = null; guess = false }) { Text("返回") }
+                Text(
+                    if (guess) "猜你喜欢" else current?.name.orEmpty(),
+                    fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
             }
             val list = songs
             if (list == null) {
