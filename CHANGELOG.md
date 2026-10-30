@@ -2,7 +2,12 @@
 
 > 本文件由 `tools/ci/release_notes.py` 依据 `manifest` 的 `changelog` 字段生成，**请勿手工编辑**；每个版本的发行说明与安装包见 [Releases](https://github.com/Tianxiaodudou/qqmcxzjm/releases)。
 
-当前版本：**v1.7.1**
+当前版本：**v1.7.2**
+
+## v1.7.2
+
+- ①修正「加到歌单」写错歌单的问题：QQMusicApi 的 add_songs 要的是 dirid，而自建歌单的 dirid 与歌单 id 可能不同；现在列表同时返回 dirid，写入时优先用它，避免加到错误歌单或直接失败。
+- ②收藏/加歌单的接口、登录引导与新建歌单流程同上一个版本。
 
 ## v1.7.1
 
