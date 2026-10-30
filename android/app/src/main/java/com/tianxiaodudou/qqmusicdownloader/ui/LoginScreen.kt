@@ -121,6 +121,10 @@ private fun QrBlock(onLoggedIn: (Session) -> Unit, wechat: Boolean) {
                     status = "已取消，点下面重新获取"
                     return@LaunchedEffect
                 }
+                is LoginApi.State.Failed -> {
+                    status = "登录失败：" + st.message
+                    return@LaunchedEffect
+                }
                 else -> Unit
             }
         }

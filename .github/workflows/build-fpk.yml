@@ -1,16 +1,12 @@
-name: 构建发布包（FPK + APK）
+name: 构建发布包（APK）
 
 # 发版只打 tag：以前 push main 和 push tag 各触发一次，同一个提交会跑两遍。
-# 需要单独验证某个分支时，用 Actions 页面的 Run workflow（workflow_dispatch），
-# 或者直接开 PR（pull_request 会跑校验）。
+# 需要单独验证某个分支时，用 Actions 页面的 Run workflow，或者直接开 PR。
 on:
   push:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
-
-env:
-  FNPACK_URL: https://static2.fnnas.com/fnpack/fnpack-1.2.3-linux-amd64
 
 jobs:
   validate:
@@ -39,18 +35,17 @@ jobs:
       - name: 后端冒烟测试
         run: python tools/ci/smoke_test.py
 
-      - name: C 加速解密库与纯 Python 等价性校验
-        run: python tools/ci/test_c_accel.py
-
   apk:
     name: 打包 APK（安卓客户端）
     needs: validate
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
-      - name: 读取版本号（与 FPK 同版本）
+      - name: 读取版本号
         id: ver
         run: echo "version=$(python3 tools/ci/release_notes.py --print-version)" >> "$GITHUB_OUTPUT"
 
@@ -104,92 +99,10 @@ jobs:
       - name: 按「版本号-应用名」重命名
         run: mv android/app/build/outputs/apk/release/*.apk "${{ steps.ver.outputs.version }}-qqmusic-downloader.apk"
 
-      # 只在本 run 内传给后面的 build 作业，保留 1 天，避免像以前那样把 artifact 配额占满。
-      - uses: actions/upload-artifact@v4
-        with:
-          name: apk
-          path: "*.apk"
-          retention-days: 1
-
-  build:
-    name: 打包 FPK
-    needs: [validate, apk]
-    # 只在打 tag 时打包发布：推 main / 开 PR 只跑上面的 validate，避免同一提交被打包两遍
-    # （v1.1.x~v1.4.1 期间 push(main) 与 push(tag) 各触发一次，每次都白打一份包）。
-    # 需要在非 tag 场景手动出包时：Actions → Build FPK → Run workflow。
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write   # 允许上传 Release 资产（默认 GITHUB_TOKEN 为只读）
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: 下载官方 fnpack
-        run: |
-          curl -fL -o fnpack "$FNPACK_URL"
-          chmod +x fnpack
-          sudo mv fnpack /usr/local/bin/fnpack
-          fnpack --help
-
-      - name: 确保生命周期脚本可执行
-        run: chmod +x cmd/* wizard/* 2>/dev/null || true
-
-      - name: 读取版本号（用于资产命名）
-        id: ver
-        run: echo "version=$(python tools/ci/release_notes.py --print-version)" >> "$GITHUB_OUTPUT"
-
-      - name: 编译 QMC2 C 加速库（随包分发）
-        run: |
-          gcc -O2 -shared -fPIC -o app/web/libqmc2_fast.so app/web/csrc/qmc2_fast.c
-          ls -l app/web/libqmc2_fast.so
-
-      - name: 构建 .fpk
-        run: |
-          fnpack build --directory .
-          ls -lh *.fpk
-
-      - name: FPK 按「版本号-应用名」重命名
-        run: |
-          mv qqmusic-downloader.fpk "${{ steps.ver.outputs.version }}-qqmusic-downloader.fpk"
-          ls -lh *.fpk
-
-      - name: 校验产物内容
-        run: python tools/ci/inspect_fpk.py "${{ steps.ver.outputs.version }}-qqmusic-downloader.fpk"
-
-      - name: 打包源码全包（tar.gz）
-        run: |
-          git archive --format=tar.gz \
-            --prefix="qqmusic-downloader-${{ steps.ver.outputs.version }}/" \
-            -o "${{ steps.ver.outputs.version }}-qqmusic-downloader-src.tar.gz" HEAD
-          ls -lh *.tar.gz
-
-      - name: 收集产物信息
-        run: ls -lh *.fpk *.tar.gz
-
-      # 打 tag 时产物直接进 Release，不再上传 Actions artifact：
-      # 私有仓库的 artifact 存储只有 500MB，历史产物会把配额占满，
-      # 导致 upload-artifact 失败、后面的 Release 步骤被跳过（v1.5.0 以来就是这样）。
-      - uses: actions/upload-artifact@v4
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        with:
-          name: qqmusic-downloader-${{ steps.ver.outputs.version }}
-          path: |
-            *.fpk
-            *.tar.gz
-            apk-dist/*.apk
-          if-no-files-found: error
-          retention-days: 3
-
-      - name: 取回 APK
-        uses: actions/download-artifact@v4
-        with:
-          name: apk
-          path: apk-dist
-
       - name: 生成发行说明（含提交记录与改动统计）
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          python tools/ci/release_notes.py --tag "$GITHUB_REF_NAME" \
+          python3 tools/ci/release_notes.py --tag "$GITHUB_REF_NAME" \
             --out release-notes.md --changelog CHANGELOG.md --readme README.md
           cat release-notes.md
 
@@ -202,25 +115,15 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: QQ音乐下载器 ${{ steps.ver.outputs.version }}
           body_path: release-notes.md
-          files: |
-            *.fpk
-            *.tar.gz
-            apk-dist/*.apk
+          files: "*.apk"
           draft: false
           prerelease: false
           make_latest: true
           fail_on_unmatched_files: true
 
-      - name: 回写 CHANGELOG.md 与 README 版本号
-        if: startsWith(github.ref, 'refs/tags/v')
-        continue-on-error: true
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- CHANGELOG.md README.md; then
-            echo "更新日志与版本号已是最新，无需回写"
-            exit 0
-          fi
-          git add CHANGELOG.md README.md
-          git commit -m "chore(release): 同步 $GITHUB_REF_NAME 的更新日志与版本号 [skip ci]"
-          git push origin HEAD:main
+      - uses: actions/upload-artifact@v4
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        with:
+          name: qqmusic-downloader-${{ steps.ver.outputs.version }}
+          path: "*.apk"
+          retention-days: 3

@@ -21,6 +21,7 @@ object LoginApi {
         data object Scanned : State
         data object Expired : State
         data object Cancelled : State
+        class Failed(val message: String) : State
         class LoggedIn(val session: Session) : State
     }
 
@@ -63,7 +64,11 @@ object LoginApi {
         val redirect = m.groupValues[2]
         val nick = m.groupValues[4]
         return when (code) {
-            "0" -> State.LoggedIn(authorize(redirect, nick))
+            "0" -> try {
+                State.LoggedIn(authorize(redirect, nick))
+            } catch (e: Exception) {
+                State.Failed(e.message ?: "换取登录态的某一步失败了")
+            }
             "1", "67" -> State.Scanned
             "2", "65" -> State.Expired
             "3" -> State.Cancelled
@@ -139,7 +144,9 @@ object LoginApi {
             "&response_type=code&scope=snsapi_login&state=STATE" +
             "&href=" + enc("https://y.qq.com/mediastyle/music_v17/src/css/popup_wechat.css#wechat_redirect")
         val html = QqClient.get(url, mapOf("Referer" to "https://y.qq.com/")).use { it.body?.string().orEmpty() }
-        val uuid = Regex("""uuid\s*=\s*["']([0-9a-zA-Z_-]{10,})["']""").find(html)?.groupValues?.get(1)
+        // 页面里 uuid 会出现在 ?uuid=xxx 和 /connect/qrcode/xxx 两处，优先按路径取
+        val uuid = Regex("""/connect/qrcode/([0-9a-zA-Z_-]{10,})""").find(html)?.groupValues?.get(1)
+            ?: Regex("""uuid=([0-9a-zA-Z_-]{10,})""").find(html)?.groupValues?.get(1)
             ?: throw QqError("获取微信 uuid 失败")
         val img = QqClient.get(
             "https://open.weixin.qq.com/connect/qrcode/" + uuid,
@@ -177,13 +184,17 @@ object LoginApi {
 
     fun sendSms(phone: String): String {
         val p = JSONObject().put("tmeAppid", "qqmusic").put("areaCode", "86").put("phoneNo", phone)
-        val data = runCatching {
+        return try {
             QqClient.cgi("music.login.LoginServer", "SendPhoneAuthCode", p, mapOf("tmeLoginMethod" to "3"))
-        }.getOrElse { e ->
-            val msg = e.message ?: ""
-            return if (msg.contains("104604")) "发送太频繁，稍后再试" else "发送失败：" + msg
+            "验证码已发送"
+        } catch (e: Exception) {
+            val msg = e.message.orEmpty()
+            when {
+                msg.contains("20276") -> "这台设备需要先过滑块验证：请用手机浏览器打开 y.qq.com 登录一次，再回来发验证码"
+                msg.contains("100001") -> "发送太频繁，过几分钟再试"
+                else -> "发送失败：" + msg
+            }
         }
-        return if (data.optInt("code", 0) == 0) "验证码已发送" else "发送失败：" + data.optString("errMsg", "")
     }
 
     fun smsLogin(phone: String, code: String): Session {
