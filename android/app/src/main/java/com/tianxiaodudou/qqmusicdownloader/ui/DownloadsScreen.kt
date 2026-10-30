@@ -26,13 +26,12 @@ import com.tianxiaodudou.qqmusicdownloader.net.History
 @Composable
 fun DownloadsScreen() {
     val context = androidx.compose.ui.platform.LocalContext.current
-    var refresh by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
-    androidx.compose.runtime.LaunchedEffect(refresh) { }
+    val refresh = androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(16.dp)) {
             Text("下载任务", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
         }
-        val history = History.list(context)
+        val history = androidx.compose.runtime.remember(refresh.intValue) { History.list(context) }
         if (Downloader.tasks.isEmpty() && history.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("还没有下载任务", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -74,7 +73,7 @@ fun DownloadsScreen() {
                     Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("下载历史", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.weight(1f))
-                        TextButton(onClick = { History.clear(context); refresh += 1 }) { Text("清空") }
+                        TextButton(onClick = { History.clear(context); refresh.intValue += 1 }) { Text("清空") }
                     }
                 }
                 items(history) { h ->
