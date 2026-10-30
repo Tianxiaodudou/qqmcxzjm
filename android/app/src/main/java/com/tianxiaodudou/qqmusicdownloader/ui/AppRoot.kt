@@ -71,7 +71,7 @@ fun AppRoot() {
 @Composable
 private fun MainTabs(session: Session, onLogout: () -> Unit) {
     val context = LocalContext.current
-    var tab by rememberSaveable { mutableStateOf(Tab.Search) }
+    var tab by rememberSaveable { mutableStateOf(Tab.Home) }
     var nowPlaying by remember { mutableStateOf<MusicApi.Song?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(false) }
@@ -145,6 +145,7 @@ private fun MainTabs(session: Session, onLogout: () -> Unit) {
         Box(modifier = Modifier.fillMaxSize().padding(inner)) {
             when (tab) {
                 Tab.Search -> SearchScreen(onPlay = { playSong(it) })
+                Tab.Library -> LibraryScreen(onPlay = { playSong(it) })
                 Tab.Mine -> MinePage(session, onLogout)
                 else -> Placeholder(tab.label)
             }

@@ -32,34 +32,36 @@ object MusicApi {
         val arr = data.optJSONObject("body")?.optJSONObject("song")?.optJSONArray("list") ?: return emptyList()
         val out = ArrayList<Song>(arr.length())
         for (i in 0 until arr.length()) {
-            val o = arr.optJSONObject(i) ?: continue
-            val mid = o.optString("mid")
-            if (mid.isEmpty()) continue
-            val names = StringBuilder()
-            val singers = o.optJSONArray("singer")
-            if (singers != null) {
-                for (j in 0 until singers.length()) {
-                    val s = singers.optJSONObject(j)?.optString("name").orEmpty()
-                    if (s.isNotEmpty()) {
-                        if (names.isNotEmpty()) names.append(" / ")
-                        names.append(s)
-                    }
-                }
-            }
-            val album = o.optJSONObject("album")
-            out.add(
-                Song(
-                    mid = mid,
-                    name = o.optString("name", o.optString("title")),
-                    singers = names.toString(),
-                    album = album?.optString("name").orEmpty(),
-                    albumMid = album?.optString("mid").orEmpty(),
-                    interval = o.optInt("interval", 0),
-                    mediaMid = o.optJSONObject("file")?.optString("media_mid").orEmpty().ifEmpty { mid },
-                )
-            )
+            parseSong(arr.optJSONObject(i))?.let { out.add(it) }
         }
         return out
+    }
+
+    fun parseSong(o: JSONObject?): Song? {
+        if (o == null) return null
+        val mid = o.optString("mid")
+        if (mid.isEmpty()) return null
+        val names = StringBuilder()
+        val singers = o.optJSONArray("singer")
+        if (singers != null) {
+            for (j in 0 until singers.length()) {
+                val s = singers.optJSONObject(j)?.optString("name").orEmpty()
+                if (s.isNotEmpty()) {
+                    if (names.isNotEmpty()) names.append(" / ")
+                    names.append(s)
+                }
+            }
+        }
+        val album = o.optJSONObject("album")
+        return Song(
+            mid = mid,
+            name = o.optString("name", o.optString("title")),
+            singers = names.toString(),
+            album = album?.optString("name").orEmpty(),
+            albumMid = album?.optString("mid").orEmpty(),
+            interval = o.optInt("interval", 0),
+            mediaMid = o.optJSONObject("file")?.optString("media_mid").orEmpty().ifEmpty { mid },
+        )
     }
 
     /** 依次尝试 320k / 128k，返回可播放的直链。 */
