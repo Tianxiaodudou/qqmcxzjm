@@ -86,6 +86,7 @@ private fun MainTabs(session: Session, onLogout: () -> Unit) {
     var showPlayer by remember { mutableStateOf(false) }
     var queue by remember { mutableStateOf<List<MusicApi.Song>>(emptyList()) }
     var qIndex by remember { mutableStateOf(-1) }
+    var ended by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     var dirLabel by remember { mutableStateOf(DirStore.get(context)?.lastPathSegment?.take(40) ?: "") }
@@ -101,6 +102,11 @@ private fun MainTabs(session: Session, onLogout: () -> Unit) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
+            }
+
+            override fun onPlaybackStateChanged(state: Int) {
+                // 播完自动下一首；用状态标记触发，避免在这里直接调后面的局部函数
+                if (state == Player.STATE_ENDED) ended = true
             }
         }
         player.addListener(listener)
@@ -146,6 +152,13 @@ private fun MainTabs(session: Session, onLogout: () -> Unit) {
 
     fun playPrev() {
         if (qIndex > 0) playAt(queue, qIndex - 1)
+    }
+
+    androidx.compose.runtime.LaunchedEffect(ended) {
+        if (ended) {
+            ended = false
+            if (qIndex >= 0 && qIndex + 1 < queue.size) playNext()
+        }
     }
 
     Scaffold(
