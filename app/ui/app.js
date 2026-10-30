@@ -2774,7 +2774,8 @@ const Player = (() => {
       box.innerHTML = items.map((s) => {
         const cover = s.picurl || '';
         const sub = [s.songnum ? s.songnum + ' 首' : '', s.creator || ''].filter(Boolean).join(' · ');
-        return '<button class="pl-row" type="button" data-dirid="' + esc(String(s.id)) + '" data-title="' + esc(s.title || '') + '">' +
+        const dirid = Number(s.dirid) || Number(s.id) || 0;
+        return '<button class="pl-row" type="button" data-dirid="' + esc(String(dirid)) + '" data-title="' + esc(s.title || '') + '">' +
           '<span class="pl-cover"' + (cover ? ' data-cover="' + esc(cover) + '"' : '') + '></span>' +
           '<span class="pl-info"><span class="pl-name">' + esc(s.title || '未命名歌单') + '</span>' +
           '<span class="pl-sub">' + esc(sub) + '</span></span>' +

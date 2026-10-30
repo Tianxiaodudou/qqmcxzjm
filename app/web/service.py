@@ -594,6 +594,8 @@ class QQService(BlocksMixin):
     def songlist_summary(self, item: Any) -> dict[str, Any]:
         return {
             "id": self._to_int(self._field(item, "id", "dissid", "tid", default=0)),
+            # 写歌单接口用的是 dirid（不是歌单 id），自建歌单两者可能不同
+            "dirid": self._to_int(self._field(item, "dirid", "dirId", default=0)),
             "title": clean_text(self._field(item, "title", "name", "dissname", "dirName")),
             "picurl": str(self._field(item, "picurl", "cover", "logo", "pic")),
             "songnum": self._to_int(self._field(item, "songnum", "songNum", "song_cnt", default=0)),

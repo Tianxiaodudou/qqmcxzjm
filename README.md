@@ -1,6 +1,6 @@
 # QQ音乐下载器（fnOS 应用）
 
-**当前版本 v1.7.1**　·　[下载最新安装包](https://github.com/Tianxiaodudou/qqmcxzjm/releases/latest)　·　[更新日志](CHANGELOG.md)
+**当前版本 v1.7.2**　·　[下载最新安装包](https://github.com/Tianxiaodudou/qqmcxzjm/releases/latest)　·　[更新日志](CHANGELOG.md)
 
 运行在飞牛 fnOS 上的 QQ 音乐下载器：登录后浏览推荐与私有歌单、搜索单曲/歌单，边听边看同步歌词；下载时自动选用账号可用的最高音质，把加密音频解密还原并把歌名、歌手、专辑、封面与歌词写入文件，输出可直接播放的成品到 NAS 指定目录。
 
@@ -9,7 +9,7 @@
 - 访问路径：统一网关 `https://<设备地址>/app/qqmusic-downloader/`
 - 许可证：GPL-3.0-or-later（本项目包含的 `app/qqmusic_api` 为 GPLv3-or-later，故整体以 GPLv3 发布）
 
-> 本页只写**当前版本（v1.7.1）的完整功能**，不记录历史版本；历史见 [CHANGELOG.md](CHANGELOG.md) 与 [Releases](https://github.com/Tianxiaodudou/qqmcxzjm/releases)。
+> 本页只写**当前版本（v1.7.2）的完整功能**，不记录历史版本；历史见 [CHANGELOG.md](CHANGELOG.md) 与 [Releases](https://github.com/Tianxiaodudou/qqmcxzjm/releases)。
 
 ## 功能
 
