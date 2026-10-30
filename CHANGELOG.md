@@ -2,7 +2,13 @@
 
 > 本文件由 `tools/ci/release_notes.py` 依据 `manifest` 的 `changelog` 字段生成，**请勿手工编辑**；每个版本的发行说明与安装包见 [Releases](https://github.com/Tianxiaodudou/qqmcxzjm/releases)。
 
-当前版本：**v1.10.0**
+当前版本：**v1.10.1**
+
+## v1.10.1
+
+- ①播放页新增「收藏」：一键加入 QQ 音乐「我喜欢」（PlaylistDetailWrite/AddSonglist，dirId 201）。
+- ②播放页新增「加到歌单」：弹窗列出账号下的歌单，点一下把当前歌曲加进去，加入结果显示在按钮下方。
+- ③补上写接口需要的数字 songId。
 
 ## v1.10.0
 
