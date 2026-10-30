@@ -2,7 +2,12 @@
 
 > 本文件由 `tools/ci/release_notes.py` 依据 `manifest` 的 `changelog` 字段生成，**请勿手工编辑**；每个版本的发行说明与安装包见 [Releases](https://github.com/Tianxiaodudou/qqmcxzjm/releases)。
 
-当前版本：**v1.10.6**
+当前版本：**v1.10.7**
+
+## v1.10.7
+
+- ①播完自动续播：一首放完自动接队列里的下一首，到队列末尾就停，不会循环。
+- ②自动续播用「播放结束」状态标记触发，避免在播放器回调里直接调界面函数导致的状态错乱。
 
 ## v1.10.6
 
