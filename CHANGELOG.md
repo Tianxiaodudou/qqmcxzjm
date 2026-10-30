@@ -2,7 +2,12 @@
 
 > 本文件由 `tools/ci/release_notes.py` 依据 `manifest` 的 `changelog` 字段生成，**请勿手工编辑**；每个版本的发行说明与安装包见 [Releases](https://github.com/Tianxiaodudou/qqmcxzjm/releases)。
 
-当前版本：**v1.10.3**
+当前版本：**v1.10.4**
+
+## v1.10.4
+
+- ①修掉一个真 bug：HTTP 封装在设置完调用方的请求头之后，又把 Referer 统一改成 y.qq.com，导致 ptlogin（取二维码、轮询扫码状态、check_sig）全部带着错误的 Referer，扫码确认后极可能拿不到 p_skey。
+- ②登录失败时把每一步的 HTTP 状态码写进提示（如「check_sig 返回 302 但没有 p_skey」），便于定位卡在哪一步。
 
 ## v1.10.3
 
