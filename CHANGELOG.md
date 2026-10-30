@@ -2,7 +2,12 @@
 
 > 本文件由 `tools/ci/release_notes.py` 依据 `manifest` 的 `changelog` 字段生成，**请勿手工编辑**；每个版本的发行说明与安装包见 [Releases](https://github.com/Tianxiaodudou/qqmcxzjm/releases)。
 
-当前版本：**v1.10.8**
+当前版本：**v1.10.9**
+
+## v1.10.9
+
+- ①修复「也许整首都没歌词」的隐患：QQ 音乐的 QRC 逐字歌词用的是它自己的 3DES 变体（实测与标准 DESede 结果不同，zlib 解不开），安卓端这一步还没移植完；现在识别失败时自动回退到接口同时下发的普通 LRC，保证歌词能显示、能跟着滚（逐字染色暂时退化为按行）。
+- ②歌词请求一次同时取 lrc / trans 两个字段，少一次往返。
 
 ## v1.10.8
 
