@@ -734,111 +734,58 @@
     align-items: stretch;
     background: transparent;
   }
-
-  #modal-player .modal-card {
-    height: 100vh;
-    height: 100dvh;
-    max-height: 100vh;
-    max-height: 100dvh;
-    border: 0;
-    border-radius: 0;
-    background: linear-gradient(180deg, var(--bg-soft) 0%, var(--bg) 62%);
+  #modal-player .player-card::before { display: none; }
+  #queue-card::before { display: none; }
+  #modal-queue .modal-card {
+    height: 62vh;
+    height: 62dvh;
+    max-height: 90dvh;
+    transition: height .18s ease;
   }
+  #modal-queue .modal-card.dragging { transition: none; }
+  .queue-foot { position: sticky; bottom: 0; background: var(--bg-soft); }
+  #pw-queue { color: var(--text); }
 
-  #modal-player .modal-card::before { display: none; }
+  /* 迷你播放器：底栏上方的播放器入口 */
+  .has-mini .content { padding-bottom: calc(150px + env(safe-area-inset-bottom)); }
+  .has-mini .toast-wrap { bottom: calc(128px + env(safe-area-inset-bottom)); }
+  .mini-player { bottom: calc(64px + env(safe-area-inset-bottom)); }
 
-  #modal-player .modal-head {
-    position: static;
-    background: transparent;
-    border-bottom: 0;
-    padding: calc(env(safe-area-inset-top) + 8px) 14px 4px;
-  }
-
-  #modal-player .modal-body {
-    padding: 4px 16px calc(18px + env(safe-area-inset-bottom));
-    overflow-y: auto;
-  }
-
-  .player-body { gap: 14px; }
-
-  .pw-top {
-    flex-direction: column;
+  /* ---------------- 单一顶栏 ----------------
+     手机端的页面标题已经由顶部标题栏承担，各页 section-head 里的 h2/返回
+     不再重复显示；只保留带批量操作的那一行，作为工具条。 */
+  .view .section-head { display: none; }
+  .view .section-head.has-actions {
+    display: flex;
     align-items: center;
-    gap: 14px;
+    gap: 6px;
+    padding: 4px 0 6px;
+    margin-bottom: 2px;
+    background: var(--bg);
+    position: sticky;
+    top: 0;
+    z-index: 12;
   }
-
-  .pw-cover {
-    width: min(64vw, 260px);
-    height: min(64vw, 260px);
-    border-radius: 20px;
-    box-shadow: 0 16px 44px rgba(0, 0, 0, .45);
+  .view .section-head.has-actions .head-left { display: none; }
+  .view .section-head.has-actions .bulk-actions {
+    flex: 1;
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 2px 0 4px;
+    scrollbar-width: none;
   }
+  .view .section-head.has-actions .bulk-actions::-webkit-scrollbar { display: none; }
+  .view .section-head.has-actions .bulk-actions .btn { flex: 0 0 auto; min-height: 34px; white-space: nowrap; }
+  .view .section-head.has-actions .bulk-actions .muted { flex: 0 0 auto; }
 
-  .pw-side { width: 100%; gap: 10px; }
+  /* 信息流分组：每组的批量栏保持可见，卡片胶囊不再重复歌曲 */
+  .block-group { margin-bottom: 16px; }
+  .block-group .block-bulk { margin: 8px 0 4px; }
+  .block-group-title { margin: 12px 0 6px; }
 
-  .pw-bar {
-    display: grid;
-    grid-template-columns: 40px 46px 40px minmax(0, 1fr) 34px;
-    grid-template-areas:
-      "seek seek seek seek seek"
-      "prev toggle next time more"
-      "mute vol vol vol vol";
-    gap: 8px;
-    padding: 12px;
-    border-radius: 16px;
-  }
-
-  .pw-seek { grid-area: seek; width: 100%; height: 6px; }
-  #pw-prev { grid-area: prev; width: 40px; height: 40px; justify-self: center; }
-  #pw-toggle {
-    grid-area: toggle;
-    width: 46px; height: 46px;
-    border-radius: 50%;
-    border: 0;
-    background: var(--primary);
-    color: #05261a;
-    font-size: 16px;
-    justify-self: center;
-  }
-  #pw-next { grid-area: next; width: 40px; height: 40px; justify-self: center; }
-  .pw-time { grid-area: time; justify-self: end; align-self: center; font-size: 11.5px; }
-  .pw-more-wrap { grid-area: more; justify-self: end; align-self: center; }
-  #pw-mute {
-    grid-area: mute;
-    display: inline-flex;
-    width: 34px; height: 34px;
-    align-self: center;
-    justify-self: start;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-  }
-  .pw-vol { grid-area: vol; display: block; width: 100%; align-self: center; }
-
-  .pw-range::-webkit-slider-thumb { width: 18px; height: 18px; }
-  .pw-range::-moz-range-thumb { width: 18px; height: 18px; }
-
-  .pw-more-menu {
-    top: auto;
-    bottom: calc(100% + 8px);
-    right: 0;
-    min-width: 200px;
-  }
-
-  .pw-meta { font-size: 13px; text-align: center; }
-
-  .pw-lrc {
-    height: 34vh;
-    min-height: 180px;
-    padding: 56px 10px;
-    border-radius: 14px;
-  }
-  .pw-lrc .lyric-line { font-size: 15px; padding: 6px 4px; }
-  .pw-lrc .lyric-trans { font-size: 12.5px; }
-
-  .pw-fields {
-    max-height: none;
-    grid-template-columns: minmax(0, 1fr);
-  }
 
   /* ---------------- Toast / 加载 ---------------- */
   .toast-wrap {
@@ -898,3 +845,17 @@
   #modal-player .pw-side { flex: 1; }
   .content { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
 }
+
+@media (max-width: 900px) {
+  .view .section-head.has-actions .bulk-actions {
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+  .view .section-head.has-actions .bulk-actions .muted {
+    flex: 1 0 100%;
+    order: 9;
+    font-size: 11.5px;
+    color: var(--text-mute);
+  }
+}
+

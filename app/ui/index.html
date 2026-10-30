@@ -522,59 +522,91 @@
     </main>
   </div>
 
-  <!-- 播放器弹窗：播放器 + 同步歌词 + 元数据字段（试听 / 播放已下载文件共用） -->
+  <!-- 播放器：手机端全屏沉浸式（顶栏 / 歌词区 / 工具栏 / 进度 / 控制），桌面端居中卡片 -->
   <div class="modal hidden" id="modal-player">
     <div class="modal-card player-card">
-      <header class="modal-head">
-        <h3 id="pw-title">播放器</h3>
-        <div class="pw-tools">
-          <button class="icon-btn" id="pw-mode" type="button" title="播放模式">🔁</button>
-          <button class="icon-btn pw-queue-btn" id="pw-queue" type="button" title="播放列表">☰<span class="q-badge" id="pw-queue-count">0</span></button>
-          <button class="icon-btn" id="pw-close" data-close="modal-player" title="关闭">✕</button>
+      <div class="pf-bg" id="pf-bg" aria-hidden="true"></div>
+      <header class="pf-top" id="pf-top">
+        <button class="icon-btn pf-back" id="pf-back" type="button" aria-label="收起播放器">‹</button>
+        <div class="pf-titles">
+          <div class="pf-name" id="pw-title">播放器</div>
+          <div class="pf-artist" id="pw-artist"></div>
+        </div>
+        <div class="pf-top-actions">
+          <span class="pf-sleep hidden" id="pf-sleep" title="睡眠定时"><span class="pf-sleep-ico">☾</span><b id="pf-sleep-time">15:00</b></span>
+          <button class="icon-btn pf-more-btn" id="pf-more" type="button" aria-label="更多" aria-haspopup="true">⋮</button>
         </div>
       </header>
-      <div class="modal-body player-body">
-        <div class="pw-top">
-          <img class="pw-cover hidden" id="pw-cover" alt="" />
-          <div class="pw-side">
-            <!-- 自绘播放控制条：原生 <audio controls> 的「⋮ → 下载」拿的是试听音质，
-                 这里改成应用内正式下载（最高音质 + 同名文件去重 + 任务进度） -->
-            <div class="pw-bar">
-              <button class="pw-btn" id="pw-prev" type="button" title="上一首" aria-label="上一首">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h2v14H7zM20 5 9.5 12 20 19z"/></svg>
-              </button>
-              <button class="pw-btn" id="pw-toggle" type="button" title="播放/暂停">▶</button>
-              <button class="pw-btn" id="pw-next" type="button" title="下一首" aria-label="下一首">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5h2v14h-2zM4 5l10.5 7L4 19z"/></svg>
-              </button>
-              <span class="pw-time" id="pw-time">00:00 / --:--</span>
-              <input class="pw-range pw-seek" id="pw-seek" type="range" min="0" max="1000" step="1" value="0" aria-label="播放进度" />
-              <button class="pw-btn" id="pw-mute" type="button" title="静音">🔊</button>
-              <input class="pw-range pw-vol" id="pw-vol" type="range" min="0" max="1" step="0.05" value="1" aria-label="音量" />
-              <div class="pw-more-wrap">
-                <button class="pw-btn" id="pw-more" type="button" title="更多" aria-haspopup="true">⋮</button>
-                <div class="pw-more-menu hidden" id="pw-more-menu">
-                  <button class="pw-more-item" type="button" data-pw-action="download">⬇ 下载（正式 · 最高音质）</button>
-                  <button class="pw-more-item" type="button" data-pw-action="speed">⏩ 播放速度 <span id="pw-speed">1×</span></button>
-                </div>
-              </div>
-            </div>
-            <audio id="pw-audio" preload="metadata"></audio>
-            <div class="pw-meta" id="pw-meta"></div>
+
+      <div class="pf-stage" id="pf-stage">
+        <div class="pf-cover-wrap" id="pf-cover-wrap">
+          <div class="pf-disc" id="pf-disc">
+            <img class="pw-cover hidden" id="pw-cover" alt="" />
+            <span class="pf-disc-fallback" id="pf-disc-fallback">♪</span>
           </div>
         </div>
+        <div class="pw-lrc" id="pw-lrc" aria-live="off"></div>
+        <div class="pf-lrc-empty hidden" id="pf-lrc-empty">
+          <div class="pf-lrc-empty-title">暂无歌词</div>
+          <button class="btn btn-ghost btn-sm" id="pf-lrc-load" type="button">手动加载歌词</button>
+        </div>
+        <button class="pf-follow hidden" id="pf-follow" type="button">回到当前</button>
+      </div>
+
+      <div class="pf-dock">
+        <div class="pf-tools" id="pf-tools">
+          <button class="pf-tool" type="button" data-pf="fav">
+            <span class="pf-tool-ico" id="pf-fav-ico">♡</span><span class="pf-tool-label">收藏</span>
+          </button>
+          <button class="pf-tool" type="button" data-pf="playlist">
+            <span class="pf-tool-ico">＋</span><span class="pf-tool-label">加到歌单</span>
+          </button>
+          <button class="pf-tool" type="button" data-pf="quality">
+            <span class="pf-tool-ico">♪</span><span class="pf-tool-label">音质</span><span class="pf-tool-tip" id="pf-quality-tip"></span>
+          </button>
+          <button class="pf-tool" type="button" data-pf="sync">
+            <span class="pf-tool-ico">☰↔</span><span class="pf-tool-label">歌词同步</span><span class="pf-tool-tip" id="pf-sync-tip"></span>
+          </button>
+        </div>
+
+        <div class="pf-seek">
+          <span class="pf-clock" id="pf-cur">00:00</span>
+          <input class="pw-range pw-seek" id="pw-seek" type="range" min="0" max="1000" step="1" value="0" aria-label="播放进度" />
+          <span class="pf-clock" id="pf-dur">--:--</span>
+        </div>
+
+        <div class="pf-controls">
+          <button class="pf-ctrl" id="pw-mode" type="button" title="播放模式">🔁</button>
+          <button class="pf-ctrl pf-skip" id="pw-prev" type="button" title="上一首" aria-label="上一首">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h2v14H7zM20 5 9.5 12 20 19z"/></svg>
+          </button>
+          <button class="pf-play" id="pw-toggle" type="button" title="播放/暂停" aria-label="播放/暂停">▶</button>
+          <button class="pf-ctrl pf-skip" id="pw-next" type="button" title="下一首" aria-label="下一首">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5h2v14h-2zM4 5l10.5 7L4 19z"/></svg>
+          </button>
+          <button class="pf-ctrl" id="pw-queue" type="button" title="播放列表" aria-label="播放列表">☰<span class="q-badge" id="pw-queue-count">0</span></button>
+        </div>
+
+        <div class="pf-extra">
+          <button class="pf-mini-btn" id="pw-mute" type="button" title="静音" aria-label="静音">🔊</button>
+          <input class="pw-range pw-vol" id="pw-vol" type="range" min="0" max="1" step="0.05" value="1" aria-label="音量" />
+          <span class="pw-time" id="pw-time"></span>
+        </div>
+
+        <audio id="pw-audio" preload="metadata"></audio>
         <div class="pw-hint" id="pw-hint"></div>
-        <div class="pw-lrc" id="pw-lrc"></div>
-        <div class="pw-fields" id="pw-fields"></div>
+        <div class="pw-meta hidden" id="pw-meta"></div>
+        <div class="pw-fields hidden" id="pw-fields"></div>
       </div>
     </div>
   </div>
 
-  <!-- 播放列表：手机端从底部上滑，可作为独立播放队列使用 -->
+  <!-- 播放列表：手机端从底部上滑（60% → 可拖到 90%），可作为独立播放队列使用 -->
   <div class="modal hidden" id="modal-queue">
-    <div class="modal-card modal-wide queue-card">
+    <div class="modal-card modal-wide queue-card" id="queue-card">
+      <div class="sheet-grip" id="queue-grip" title="拖动调整高度"></div>
       <header class="modal-head">
-        <h3>播放列表 <span class="muted" id="queue-count"></span></h3>
+        <h3>播放队列 <span class="muted" id="queue-count"></span></h3>
         <div class="pw-tools">
           <button class="icon-btn" id="pw-queue-close" data-close="modal-queue" type="button" title="关闭">✕</button>
         </div>
@@ -589,6 +621,159 @@
       </div>
       <div class="modal-body queue-body">
         <ul class="queue-list" id="queue-list"></ul>
+      </div>
+      <div class="queue-foot">
+        <button class="btn btn-primary btn-block" id="queue-shuffle" type="button">随机播放全部</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 播放器底部弹层（统一：深色圆角 + 遮罩 + 上滑，播放不中断） ============ -->
+
+  <!-- 音质选择 -->
+  <div class="sheet hidden" id="sheet-quality">
+    <div class="sheet-card">
+      <div class="sheet-head"><h3>音质选择</h3><button class="icon-btn" type="button" data-sheet-close>✕</button></div>
+      <div class="sheet-body">
+        <div class="opt-list" id="quality-options"></div>
+        <p class="sheet-note">音质管文件码率，与「更多 → 均衡器」的音效是两回事。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 歌词同步（单曲独立偏移） -->
+  <div class="sheet hidden" id="sheet-sync">
+    <div class="sheet-card">
+      <div class="sheet-head"><h3>歌词同步</h3><button class="icon-btn" type="button" data-sheet-close>✕</button></div>
+      <div class="sheet-body">
+        <div class="sync-readout"><b id="sync-value">0.0s</b><span class="muted" id="sync-song"></span></div>
+        <div class="sync-row">
+          <button class="sync-step" type="button" data-sync-step="-0.5" aria-label="歌词提前 0.5 秒">−0.5s</button>
+          <input class="sync-range" id="sync-range" type="range" min="-5" max="5" step="0.1" value="0" aria-label="歌词偏移" />
+          <button class="sync-step" type="button" data-sync-step="0.5" aria-label="歌词延后 0.5 秒">+0.5s</button>
+        </div>
+        <p class="sheet-note">仅对当前歌曲生效；拖动时歌词实时跟着走，边调边看对齐。</p>
+      </div>
+      <div class="sheet-foot">
+        <button class="btn btn-ghost" id="sync-reset" type="button">重置为 0</button>
+        <button class="btn btn-primary" type="button" data-sheet-close>完成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 更多菜单 -->
+  <div class="sheet hidden" id="sheet-more">
+    <div class="sheet-card">
+      <div class="sheet-head"><h3>更多</h3><button class="icon-btn" type="button" data-sheet-close>✕</button></div>
+      <div class="sheet-body more-list">
+        <button class="more-item" type="button" data-more="share">分享歌曲</button>
+        <button class="more-item" type="button" data-more="info">歌曲信息</button>
+        <button class="more-item" type="button" data-more="related">查看专辑 / 歌手</button>
+        <div class="more-sep"></div>
+        <button class="more-item" type="button" data-more="eq">均衡器<span class="more-val" id="more-eq">默认</span></button>
+        <button class="more-item" type="button" data-more="speed">播放速度<span class="more-val" id="more-speed">1.0x</span></button>
+        <button class="more-item" type="button" data-more="sleep">睡眠定时<span class="more-val" id="more-sleep">未开启</span></button>
+        <button class="more-item" type="button" data-more="style">歌词样式<span class="more-val" id="more-style">居中 · 中</span></button>
+        <div class="more-sep"></div>
+        <button class="more-item" type="button" data-more="feedback">反馈问题</button>
+        <button class="more-item" type="button" data-more="about">关于<span class="more-val" id="more-version"></span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 均衡器 -->
+  <div class="sheet hidden" id="sheet-eq">
+    <div class="sheet-card">
+      <div class="sheet-head"><h3>均衡器</h3><button class="icon-btn" type="button" data-sheet-close>✕</button></div>
+      <div class="sheet-body">
+        <div class="opt-list" id="eq-options"></div>
+        <p class="sheet-note">音效只影响本机播放，不会改变下载到的文件。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 播放速度 -->
+  <div class="sheet hidden" id="sheet-speed">
+    <div class="sheet-card">
+      <div class="sheet-head"><h3>播放速度</h3><button class="icon-btn" type="button" data-sheet-close>✕</button></div>
+      <div class="sheet-body"><div class="opt-list" id="speed-options"></div></div>
+    </div>
+  </div>
+
+  <!-- 睡眠定时 -->
+  <div class="sheet hidden" id="sheet-sleep">
+    <div class="sheet-card">
+      <div class="sheet-head"><h3>睡眠定时</h3><button class="icon-btn" type="button" data-sheet-close>✕</button></div>
+      <div class="sheet-body">
+        <div class="opt-list" id="sleep-options"></div>
+        <p class="sheet-note">到点自动暂停；「播完当前」会在这一首结束后停。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 歌词样式 -->
+  <div class="sheet hidden" id="sheet-style">
+    <div class="sheet-card">
+      <div class="sheet-head"><h3>歌词样式</h3><button class="icon-btn" type="button" data-sheet-close>✕</button></div>
+      <div class="sheet-body">
+        <div class="style-row"><span>字体大小</span>
+          <div class="seg" id="style-size">
+            <button type="button" data-size="s">小</button><button type="button" data-size="m">中</button><button type="button" data-size="l">大</button>
+          </div>
+        </div>
+        <div class="style-row"><span>对齐方式</span>
+          <div class="seg" id="style-align">
+            <button type="button" data-align="center">居中</button><button type="button" data-align="left">左对齐</button>
+          </div>
+        </div>
+        <div class="style-row"><span>显示翻译</span>
+          <label class="switch"><input type="checkbox" id="style-trans" checked /><i></i></label>
+        </div>
+        <div class="style-row"><span>显示音译</span>
+          <label class="switch disabled"><input type="checkbox" id="style-romaji" disabled /><i></i></label>
+        </div>
+        <p class="sheet-note">当前歌词源没有音译信息，暂不可用。</p>
+      </div>
+      <div class="sheet-foot">
+        <button class="btn btn-ghost" id="style-reset" type="button">恢复默认</button>
+        <button class="btn btn-primary" type="button" data-sheet-close>完成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 歌曲信息 -->
+  <div class="sheet hidden" id="sheet-info">
+    <div class="sheet-card">
+      <div class="sheet-head"><h3>歌曲信息</h3><button class="icon-btn" type="button" data-sheet-close>✕</button></div>
+      <div class="sheet-body"><div class="info-list" id="info-list"></div></div>
+    </div>
+  </div>
+
+  <!-- 专辑 / 歌手 -->
+  <div class="sheet hidden" id="sheet-related">
+    <div class="sheet-card">
+      <div class="sheet-head">
+        <h3 id="related-title">专辑</h3>
+        <div class="pw-tools">
+          <button class="btn btn-ghost btn-sm" id="related-switch" type="button">看歌手</button>
+          <button class="icon-btn" type="button" data-sheet-close>✕</button>
+        </div>
+      </div>
+      <div class="modal-body"><ul class="song-list" id="related-list"></ul></div>
+    </div>
+  </div>
+
+  <!-- 加入播放列表 -->
+  <div class="sheet hidden" id="sheet-add">
+    <div class="sheet-card">
+      <div class="sheet-head"><h3>加到歌单</h3><button class="icon-btn" type="button" data-sheet-close>✕</button></div>
+      <div class="sheet-body">
+        <button class="list-choice" type="button" id="add-to-queue">
+          <span class="lc-ico">☰</span>
+          <span class="lc-text"><b>播放列表</b><span class="muted" id="add-queue-count">0 首</span></span>
+          <span class="lc-go">加入 ›</span>
+        </button>
+        <p class="sheet-note">应用内只有这一个播放队列；加入后可在「我的 → 播放列表」或播放器 ☰ 里管理。</p>
       </div>
     </div>
   </div>
@@ -713,6 +898,22 @@
         <ul class="song-list" id="version-results"></ul>
       </div>
     </div>
+  </div>
+
+  <!-- 手机端迷你播放器：底栏上方的播放器入口（无播放内容但有队列时也能进） -->
+  <div class="mini-player hidden" id="mini-player">
+    <div class="mp-progress"><i id="mp-bar"></i></div>
+    <button class="mp-main" id="mp-open" type="button" aria-label="打开播放器">
+      <span class="mp-cover" id="mp-cover"></span>
+      <span class="mp-info">
+        <b class="mp-name" id="mp-name">播放列表</b>
+        <span class="mp-sub" id="mp-sub">0 首</span>
+      </span>
+    </button>
+    <button class="mp-btn" id="mp-toggle" type="button" aria-label="播放/暂停">▶</button>
+    <button class="mp-btn" id="mp-next" type="button" aria-label="下一首">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5h2v14h-2zM4 5l10.5 7L4 19z"/></svg>
+    </button>
   </div>
 
   <!-- 手机端底部主导航（桌面端隐藏） -->
