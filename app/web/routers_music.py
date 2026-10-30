@@ -263,8 +263,8 @@ async def song_detail(songmid: str) -> dict[str, Any]:
 
 
 @router.get("/song/{songmid}/lyric")
-async def song_lyric(songmid: str, trans: int = Query(1)) -> dict[str, Any]:
-    data = await service.song_lyric(songmid, trans=bool(trans))
+async def song_lyric(songmid: str, trans: int = Query(1), qrc: int = Query(1)) -> dict[str, Any]:
+    data = await service.song_lyric(songmid, trans=bool(trans), qrc=bool(qrc))
     return {"ok": True, **data}
 
 

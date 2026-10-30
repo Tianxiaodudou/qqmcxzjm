@@ -2003,6 +2003,16 @@ function buildLyrics(data) {
   return mergeTranslation(main, parseLrc((data && data.translation) || ''));
 }
 
+/* 取歌词：先要 QRC，解析不出来（老歌/接口没给）再退回普通 LRC */
+async function fetchLyrics(songmid) {
+  const path = '/song/' + encodeURIComponent(songmid) + '/lyric';
+  let data = await api(path, { query: { trans: 1 } });
+  if (data && data.qrc && !parseQrc(data.qrc).length) {
+    data = await api(path, { query: { trans: 1, qrc: 0 } });
+  }
+  return buildLyrics(data);
+}
+
 /* 播放器 v1.7：沉浸式全屏播放页
    ------------------------------------------------------------------
    - 歌词：自动居中跟随 / 手动滚动暂停 + 「回到当前」/ 点击跳转闪烁 / 长按复制
@@ -3219,8 +3229,7 @@ const Player = (() => {
     if (!mid) return;
     hint('正在重新获取歌词…');
     try {
-      const data = await api('/song/' + encodeURIComponent(mid) + '/lyric', { query: { trans: 1 } });
-      const merged = buildLyrics(data);
+      const merged = await fetchLyrics(mid);
       state.player.lyrics = merged;
       lines = merged;
       renderLyric();
@@ -3339,8 +3348,7 @@ async function openPlayer(songmid, songList = [], opts = {}) {
     Player.hint('获取试听直链失败，请查看提示信息。');
   }
   try {
-    const lyricData = await api(`/song/${encodeURIComponent(songmid)}/lyric`, { query: { trans: 1 } });
-    const merged = buildLyrics(lyricData);
+    const merged = await fetchLyrics(songmid);
     state.player.lyrics = merged;
     Player.update({ lines: merged });
   } catch (err) {

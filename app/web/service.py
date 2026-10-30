@@ -711,14 +711,31 @@ class QQService(BlocksMixin):
                 logger.info("附加元数据 %s 解析失败：%s", key, security.sanitize_log(str(exc)))
         return result
 
-    async def song_lyric(self, value: int | str, trans: bool = True) -> dict[str, str]:
-        response = await self.call(lambda c: c.lyric.get_lyric(value, trans=trans, qrc=True))
-        return {
-            "lyric": str(self._field(response, "lyric", default="")),
-            "qrc": str(self._field(response, "qrc", default="")),
-            "translation": str(self._field(response, "trans", "translation", default="")),
-            "roma": str(self._field(response, "roma", default="")),
+    async def song_lyric(self, value: int | str, trans: bool = True, qrc: bool = False) -> dict[str, str]:
+        """歌词。
+
+        注意 QQ 音乐的行为：请求 qrc=1 时，返回体里的 `qrc` 只是 1/0 标志，
+        真正的逐字歌词放在 `lyric` 字段（同样是 3DES + zlib 加密），解密后是 QRC XML。
+        所以这里按内容判断，把 QRC 拆到单独的 `qrc` 键，避免前端把 XML 当 LRC 解析。
+        """
+        try:
+            response = await self.call(lambda c: c.lyric.get_lyric(value, trans=trans, qrc=qrc))
+        except Exception as exc:  # noqa: BLE001
+            if not qrc:
+                raise
+            logger.info("逐字歌词获取失败，回退普通歌词：%s", security.sanitize_log(str(exc)))
+            response = await self.call(lambda c: c.lyric.get_lyric(value, trans=trans))
+        lyric = str(self._field(response, "lyric", default="") or "")
+        result = {
+            "lyric": lyric,
+            "qrc": "",
+            "translation": str(self._field(response, "trans", "translation", default="") or ""),
+            "roma": str(self._field(response, "roma", default="") or ""),
         }
+        if qrc and ("<QrcInfos" in lyric or "LyricContent=" in lyric):
+            result["qrc"] = lyric
+            result["lyric"] = ""
+        return result
 
     async def search(self, keyword: str, kind: str = "song", page: int = 1, num: int = 20) -> list[dict[str, Any]]:
         type_map = {
