@@ -110,21 +110,6 @@ private fun MainTabs(session: Session, onLogout: () -> Unit) {
         }
     }
 
-    fun playAt(list: List<MusicApi.Song>, index: Int) {
-        if (index !in list.indices) return
-        queue = list
-        qIndex = index
-        playSong(list[index])
-    }
-
-    fun playNext() {
-        if (qIndex >= 0 && qIndex + 1 < queue.size) playAt(queue, qIndex + 1)
-    }
-
-    fun playPrev() {
-        if (qIndex > 0) playAt(queue, qIndex - 1)
-    }
-
     fun playSong(song: MusicApi.Song) {
         nowPlaying = song
         loading = true
@@ -146,6 +131,21 @@ private fun MainTabs(session: Session, onLogout: () -> Unit) {
             player.prepare()
             player.play()
         }
+    }
+
+    fun playAt(list: List<MusicApi.Song>, index: Int) {
+        if (index !in list.indices) return
+        queue = list
+        qIndex = index
+        playSong(list[index])
+    }
+
+    fun playNext() {
+        if (qIndex >= 0 && qIndex + 1 < queue.size) playAt(queue, qIndex + 1)
+    }
+
+    fun playPrev() {
+        if (qIndex > 0) playAt(queue, qIndex - 1)
     }
 
     Scaffold(
