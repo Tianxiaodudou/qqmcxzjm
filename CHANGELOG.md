@@ -2,7 +2,14 @@
 
 > 本文件由 `tools/ci/release_notes.py` 依据 `manifest` 的 `changelog` 字段生成，**请勿手工编辑**；每个版本的发行说明与安装包见 [Releases](https://github.com/Tianxiaodudou/qqmcxzjm/releases)。
 
-当前版本：**v1.9.3**
+当前版本：**v1.9.4**
+
+## v1.9.4
+
+- ①修复安卓端扫码后卡在「已扫码」：QQ 扫码成功后换取 musickey 的某一步失败时，以前异常被吞掉、界面停在已扫描；现在会直接把具体失败原因显示出来（缺 p_skey / 授权没拿到 code / QQLogin 返回错误码）。
+- ②修复微信二维码显示不出来：uuid 实际写在 /connect/qrcode/xxx 与 ?uuid=xxx 里、不带引号，旧正则匹配不上。
+- ③手机验证码发送返回 20276 时明确提示「这台设备需要先过滑块验证」，100001 提示发送过于频繁。
+- ④发版流程不再打包 FPK（服务端已稳定、无需再改），Release 只出 APK；历史版本的 FPK 资产保留不动。
 
 ## v1.9.3
 
