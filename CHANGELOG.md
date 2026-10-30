@@ -2,7 +2,12 @@
 
 > 本文件由 `tools/ci/release_notes.py` 依据 `manifest` 的 `changelog` 字段生成，**请勿手工编辑**；每个版本的发行说明与安装包见 [Releases](https://github.com/Tianxiaodudou/qqmcxzjm/releases)。
 
-当前版本：**v1.10.5**
+当前版本：**v1.10.6**
+
+## v1.10.6
+
+- ①新增播放队列：从搜索、歌单、榜单任意列表点歌，整个列表会成为播放队列，播放页可以「上一首 / 下一首」，队列边界自动停住。
+- ②播放页控制区改为 上一首 / 播放暂停 / 下一首。
 
 ## v1.10.5
 
