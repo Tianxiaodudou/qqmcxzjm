@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 // 版本号由 CI 用 -PappVersion=<manifest 里的版本> 传入，保证 APK 与 FPK 同版本。
@@ -21,7 +22,7 @@ android {
     }
 
     // 固定签名：密钥只在 CI 里从仓库 Secrets 还原，不落仓库。
-    // 没有配置密钥时（本地开发 / fork）回退到 debug 签名，产物不可用于覆盖安装正式版。
+    // 没有配置密钥时（本地开发 / fork）回退到 debug 签名。
     val keystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
     signingConfigs {
         if (!keystorePath.isNullOrBlank()) {
@@ -56,6 +57,7 @@ android {
         jvmTarget = "17"
     }
     buildFeatures {
+        compose = true
         buildConfig = true
     }
     lint {
@@ -65,6 +67,12 @@ android {
 }
 
 dependencies {
+    implementation(platform("androidx.compose:compose-bom:2025.09.00"))
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.core:core-ktx:1.15.0")
-    implementation("androidx.activity:activity-ktx:1.9.3")
+
+    debugImplementation("androidx.compose.ui:ui-tooling")
+    implementation("androidx.compose.ui:ui-tooling-preview")
 }
