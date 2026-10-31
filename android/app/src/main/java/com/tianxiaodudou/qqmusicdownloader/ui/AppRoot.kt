@@ -67,7 +67,11 @@ fun AppRoot() {
     val current = session
 
     if (current == null) {
-        LoginScreen(onLoggedIn = { session = it })
+        LoginScreen(onLoggedIn = { s ->
+            // 必须落盘：之前只更新内存，进程一重启就要重新扫码。
+            Session.save(context, s)
+            session = s
+        })
     } else {
         MainTabs(current, onLogout = {
             Session.clear(context)
