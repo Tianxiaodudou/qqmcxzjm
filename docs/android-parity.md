@@ -24,6 +24,14 @@
 | 下载到手机（SAF） | `net/Downloader.kt`、`net/DirStore.kt`、`net/Tagger.kt` | — | 未验证 |
 | 播放队列 / 自动续播 / 下载历史 | `ui/AppRoot.kt`、`net/History.kt` | 本地 | 未验证 |
 
+## 登录方式对照（对照上游 L-1124/QQMusicApi 的 login.py）
+
+| 方式 | 上游 | 安卓 | 差异 |
+| --- | --- | --- | --- |
+| 微信扫码 | `open.weixin` qrconnect → `lp.open.weixin` 长轮询 → `music.login.LoginServer/Login`(code, strAppid, tmeLoginType=1) | 同左 | 无 |
+| QQ 扫码 | ptqrshow → ptqrlogin → check_sig 取 p_skey → graph oauth 取 code → `QQConnectLogin/QQLogin` | ptqrshow → ptqrlogin(u1 指向 y.qq.com) → 跟随跳转取 code → `QQConnectLogin/QQLogin` | 授权链路不同：上游依赖 p_skey，实测 302 但不下发；安卓改走网页版 y.qq.com 回调 |
+| 手机验证码 | `SendPhoneAuthCode`(tmeLoginMethod=3, **Platform.ANDROID**) → `Login`(loginMode=1, tmeLoginMethod=3, tmeLoginType=0) | 参数相同，platform 为 web | **平台不同**：上游 ANDROID 平台要先取 QIMEI 设备指纹，安卓端暂用 web，可能触发滑块(20276) |
+
 ## 与 fpk 的差异（刻意不做）
 
 - **每日 30 首**：fpk 是靠搜索公开歌单再挑一个日更的，安卓端已有「每日推荐（私人雷达）」，功能重叠，不实现。

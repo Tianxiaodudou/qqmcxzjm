@@ -105,10 +105,11 @@ object LoginApi {
             if (!key.isNullOrEmpty() && uin.isNotEmpty()) return Session(uin, key, nick)
             throw QqError("扫码确认后没有拿到 code（当前跳转：" + finalUrl.take(80) + "）")
         }
+        // 换 key 的接口与上游 _authorize_qq_qr 一致：QQConnectLogin/QQLogin（只传 code）。
         val data = QqClient.cgi(
-            "music.login.LoginServer",
-            "Login",
-            JSONObject().put("code", code).put("strAppid", APPID),
+            "QQConnectLogin.LoginServer",
+            "QQLogin",
+            JSONObject().put("code", code),
             mapOf("tmeLoginType" to "2"),
         )
         return toSession(data, nick)
