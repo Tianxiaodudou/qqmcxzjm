@@ -69,4 +69,22 @@ object RecommendApi {
         for (i in 0 until arr.length()) MusicApi.parseSong(arr.optJSONObject(i))?.let { out.add(it) }
         return out
     }
+
+    /** 每日推荐（私人雷达），对应 fpk 的 TrackRelationServer / GetRadarSong。 */
+    fun radar(page: Int = 1): List<MusicApi.Song> {
+        val p = JSONObject()
+        p.put("Page", page)
+        p.put("ReqType", 0)
+        p.put("FavSongs", org.json.JSONArray())
+        p.put("EntranceSongs", org.json.JSONArray())
+        val data = QqClient.cgi("music.recommend.TrackRelationServer", "GetRadarSong", p)
+        val arr = data.optJSONArray("VecSongs") ?: return emptyList()
+        val out = ArrayList<MusicApi.Song>()
+        for (i in 0 until arr.length()) {
+            val row = arr.optJSONObject(i) ?: continue
+            val track = row.optJSONObject("Track") ?: row
+            MusicApi.parseSong(track)?.let { out.add(it) }
+        }
+        return out
+    }
 }

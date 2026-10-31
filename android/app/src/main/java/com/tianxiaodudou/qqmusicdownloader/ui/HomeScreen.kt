@@ -38,6 +38,7 @@ import kotlinx.coroutines.withContext
 private sealed interface HomeView {
     data object Feed : HomeView
     data object Guess : HomeView
+    data object Radar : HomeView
     data class Chart(val chart: TopApi.Chart) : HomeView
     data class Songlist(val item: RecommendApi.Songlist) : HomeView
 }
@@ -70,6 +71,7 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
             runCatching {
                 when (v) {
                     is HomeView.Guess -> RecommendApi.guess()
+                    is HomeView.Radar -> RecommendApi.radar()
                     is HomeView.Chart -> TopApi.songs(v.chart)
                     is HomeView.Songlist -> PlaylistApi.songs(
                         PlaylistApi.Item(v.item.id, v.item.dirId, v.item.name, v.item.songNum)
@@ -123,6 +125,15 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
                 }
             }
 
+            item { SectionTitle("每日推荐") }
+            item {
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                        .clickable { view = HomeView.Radar }
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                ) { Text("私人雷达（每日 30 首）", fontSize = 15.sp) }
+            }
+
             item { SectionTitle("排行榜") }
             item {
                 Row(
@@ -150,6 +161,7 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
     } else {
         val title = when (v) {
             is HomeView.Guess -> "猜你喜欢"
+            is HomeView.Radar -> "每日推荐"
             is HomeView.Chart -> v.chart.name
             is HomeView.Songlist -> v.item.name
             else -> ""
