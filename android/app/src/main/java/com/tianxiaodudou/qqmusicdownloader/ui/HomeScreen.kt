@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.tianxiaodudou.qqmusicdownloader.net.AlbumApi
 import com.tianxiaodudou.qqmusicdownloader.net.MusicApi
 import com.tianxiaodudou.qqmusicdownloader.net.PlaylistApi
 import com.tianxiaodudou.qqmusicdownloader.net.RecommendApi
@@ -46,6 +47,8 @@ private sealed interface HomeView {
     data class Chart(val chart: TopApi.Chart) : HomeView
     data class Songlist(val item: RecommendApi.Songlist) : HomeView
     data class Card(val card: RecommendApi.FeedCard) : HomeView
+    data object Albums : HomeView
+    data class AlbumSongs(val album: AlbumApi.Album) : HomeView
 }
 
 @Composable
@@ -54,6 +57,7 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
     var songlists by remember { mutableStateOf<List<RecommendApi.Songlist>?>(null) }
     var newSongs by remember { mutableStateOf<List<MusicApi.Song>?>(null) }
     var feed by remember { mutableStateOf<List<RecommendApi.FeedGroup>?>(null) }
+    var albums by remember { mutableStateOf<List<AlbumApi.Album>?>(null) }
     var view by remember { mutableStateOf<HomeView>(HomeView.Feed) }
     var songs by remember { mutableStateOf<List<MusicApi.Song>?>(null) }
     var error by remember { mutableStateOf("") }
@@ -72,6 +76,12 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
     LaunchedEffect(view) {
         val v = view
         if (v is HomeView.Feed) return@LaunchedEffect
+        if (v is HomeView.Albums) {
+            albums = null
+            val r = withContext(Dispatchers.IO) { runCatching { AlbumApi.newAlbums() } }
+            r.onSuccess { albums = it }.onFailure { albums = emptyList() }
+            return@LaunchedEffect
+        }
         songs = null
         error = ""
         val r = withContext(Dispatchers.IO) {
@@ -83,6 +93,7 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
                     is HomeView.Songlist -> PlaylistApi.songs(
                         PlaylistApi.Item(v.item.id, v.item.dirId, v.item.name, v.item.songNum)
                     )
+                    is HomeView.AlbumSongs -> AlbumApi.songs(v.album.mid)
                     is HomeView.Card -> {
                         if (v.card.kind == "song") {
                             val sid = v.card.id.toLongOrNull()
@@ -177,6 +188,15 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
                 ) { Text("私人雷达（每日 30 首）", fontSize = 15.sp) }
             }
 
+            item { SectionTitle("新碟上架") }
+            item {
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                        .clickable { view = HomeView.Albums }
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                ) { Text("最新专辑（内地）", fontSize = 15.sp) }
+            }
+
             item { SectionTitle("排行榜") }
             item {
                 Row(
@@ -201,6 +221,44 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
             }
             item { Box(Modifier.padding(16.dp)) {} }
         }
+    } else if (v is HomeView.Albums) {
+        Column(Modifier.fillMaxSize()) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = { view = HomeView.Feed; albums = null }) { Text("返回") }
+                Text("新碟上架", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            }
+            val al = albums
+            if (al == null) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            } else if (al.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("暂无新碟", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else {
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(al) { a ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                                .clickable { view = HomeView.AlbumSongs(a) }
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Cover(a.cover, 48.dp)
+                            Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                                Text(a.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp)
+                                Text(
+                                    a.singer, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
     } else {
         val title = when (v) {
             is HomeView.Guess -> "猜你喜欢"
@@ -208,6 +266,7 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
             is HomeView.Chart -> v.chart.name
             is HomeView.Songlist -> v.item.name
             is HomeView.Card -> v.card.name
+            is HomeView.AlbumSongs -> v.album.name
             else -> ""
         }
         Column(Modifier.fillMaxSize()) {
