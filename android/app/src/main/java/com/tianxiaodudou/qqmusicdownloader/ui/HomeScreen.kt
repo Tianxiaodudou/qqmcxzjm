@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -24,10 +25,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil3.compose.AsyncImage
 import com.tianxiaodudou.qqmusicdownloader.net.MusicApi
 import com.tianxiaodudou.qqmusicdownloader.net.PlaylistApi
 import com.tianxiaodudou.qqmusicdownloader.net.RecommendApi
@@ -100,7 +104,8 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
                             .padding(horizontal = 16.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Column(Modifier.weight(1f)) {
+                        Cover(s.pic, 48.dp)
+                        Column(Modifier.weight(1f).padding(start = 10.dp)) {
                             Text(s.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp)
                             Text(
                                 s.songNum.toString() + " 首 · " + fmtPlay(s.listenNum) +
@@ -224,7 +229,8 @@ private fun SongRow(song: MusicApi.Song, onClick: () -> Unit, onDl: () -> Unit) 
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f)) {
+        Cover(albumCover(song.albumMid), 44.dp)
+        Column(Modifier.weight(1f).padding(start = 10.dp)) {
             Text(song.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp)
             Text(
                 song.singers, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -234,6 +240,20 @@ private fun SongRow(song: MusicApi.Song, onClick: () -> Unit, onDl: () -> Unit) 
         TextButton(onClick = onDl) { Text("下载", fontSize = 12.sp) }
     }
 }
+
+@Composable
+private fun Cover(url: String, dim: Dp) {
+    if (url.isEmpty()) return
+    AsyncImage(
+        model = url,
+        contentDescription = null,
+        modifier = Modifier.size(dim).clip(RoundedCornerShape(6.dp)),
+        contentScale = ContentScale.Crop,
+    )
+}
+
+private fun albumCover(mid: String): String =
+    if (mid.isEmpty()) "" else "https://y.gtimg.cn/music/photo_new/T002R300x300M000" + mid + ".jpg"
 
 private fun fmtPlay(n: Int): String = when {
     n >= 100000000 -> String.format("%.1f 亿", n / 100000000.0)

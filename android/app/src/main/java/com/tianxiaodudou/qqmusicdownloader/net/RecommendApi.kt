@@ -12,6 +12,7 @@ object RecommendApi {
         val songNum: Int,
         val listenNum: Int,
         val creator: String,
+        val pic: String,
     )
 
     fun guess(num: Int = 30): List<MusicApi.Song> {
@@ -54,6 +55,8 @@ object RecommendApi {
                     songNum = b.optInt("song_cnt", b.optInt("songnum", 0)),
                     listenNum = b.optInt("play_cnt", b.optInt("listennum", 0)),
                     creator = b.optJSONObject("creator")?.optString("nick").orEmpty(),
+                    pic = b.optJSONObject("cover")?.optString("default_url").orEmpty()
+                        .ifEmpty { b.optString("picurl") }
                 )
             )
         }
