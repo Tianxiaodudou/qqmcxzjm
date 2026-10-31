@@ -119,7 +119,7 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
                 item { HintRow("暂无新歌") }
             } else {
                 itemsIndexed(ns) { i, song ->
-                    SongRow(song) { onPlay(ns, i) } { onDownload(song) }
+                    SongRow(song, onClick = { onPlay(ns, i) }, onDl = { onDownload(song) })
                 }
             }
 
@@ -175,7 +175,7 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
             } else {
                 LazyColumn(Modifier.fillMaxSize()) {
                     itemsIndexed(list) { i, song ->
-                        SongRow(song) { onPlay(list, i) } { onDownload(song) }
+                        SongRow(song, onClick = { onPlay(list, i) }, onDl = { onDownload(song) })
                     }
                 }
             }
@@ -205,7 +205,7 @@ private fun HintRow(text: String) {
 }
 
 @Composable
-private fun SongRow(song: MusicApi.Song, onClick: () -> Unit, onDownload: () -> Unit) {
+private fun SongRow(song: MusicApi.Song, onClick: () -> Unit, onDl: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
@@ -219,7 +219,7 @@ private fun SongRow(song: MusicApi.Song, onClick: () -> Unit, onDownload: () -> 
                 fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        TextButton(onClick = onDownload) { Text("下载", fontSize = 12.sp) }
+        TextButton(onClick = onDl) { Text("下载", fontSize = 12.sp) }
     }
 }
 
