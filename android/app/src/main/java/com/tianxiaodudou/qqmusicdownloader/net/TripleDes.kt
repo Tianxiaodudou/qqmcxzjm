@@ -16,40 +16,40 @@ object TripleDes {
     private val KEY_PERM_D = intArrayOf(62, 54, 46, 38, 30, 22, 14, 6, 61, 53, 45, 37, 29, 21, 13, 5, 60, 52, 44, 36, 28, 20, 12, 4, 27, 19, 11, 3)
     private val KEY_COMPRESSION = intArrayOf(13, 16, 10, 23, 0, 4, 2, 27, 14, 5, 20, 9, 22, 18, 11, 3, 25, 7, 15, 6, 26, 19, 12, 1, 40, 51, 30, 36, 46, 54, 29, 39, 50, 44, 32, 47, 43, 48, 38, 55, 33, 52, 45, 41, 49, 35, 28, 31)
 
-    private fun sboxBit(a: Int): Int = (a and 32) or ((a and 31) shr 1) or ((a and 1) shl 4)
+    private fun sboxBit(a: Int): Int = (a and 32) or ((a and 31) ushr 1) or ((a and 1) shl 4)
 
     fun initialPermutation(d: ByteArray): Pair<Int, Int> {
         val v0 = (d[0].toInt() and 0xFF) or ((d[1].toInt() and 0xFF) shl 8) or ((d[2].toInt() and 0xFF) shl 16) or ((d[3].toInt() and 0xFF) shl 24)
         val v1 = (d[4].toInt() and 0xFF) or ((d[5].toInt() and 0xFF) shl 8) or ((d[6].toInt() and 0xFF) shl 16) or ((d[7].toInt() and 0xFF) shl 24)
-        val s0 = ((((((((((((((((((((((((((((((((((v1 shr 6) and 1) shl 31) or (((v1 shr 14) and 1) shl 30)) or (((v1 shr 22) and 1) shl 29)) or (((v1 shr 30) and 1) shl 28)) or (((v0 shr 6) and 1) shl 27)) or (((v0 shr 14) and 1) shl 26)) or (((v0 shr 22) and 1) shl 25)) or (((v0 shr 30) and 1) shl 24)) or (((v1 shr 4) and 1) shl 23)) or (((v1 shr 12) and 1) shl 22)) or (((v1 shr 20) and 1) shl 21)) or (((v1 shr 28) and 1) shl 20)) or (((v0 shr 4) and 1) shl 19)) or (((v0 shr 12) and 1) shl 18)) or (((v0 shr 20) and 1) shl 17)) or (((v0 shr 28) and 1) shl 16)) or (((v1 shr 2) and 1) shl 15)) or (((v1 shr 10) and 1) shl 14)) or (((v1 shr 18) and 1) shl 13)) or (((v1 shr 26) and 1) shl 12)) or (((v0 shr 2) and 1) shl 11)) or (((v0 shr 10) and 1) shl 10)) or (((v0 shr 18) and 1) shl 9)) or (((v0 shr 26) and 1) shl 8)) or (((v1 shr 0) and 1) shl 7)) or (((v1 shr 8) and 1) shl 6)) or (((v1 shr 16) and 1) shl 5)) or (((v1 shr 24) and 1) shl 4)) or (((v0 shr 0) and 1) shl 3)) or (((v0 shr 8) and 1) shl 2)) or (((v0 shr 16) and 1) shl 1)) or ((v0 shr 24) and 1))
-        val s1 = ((((((((((((((((((((((((((((((((((v1 shr 7) and 1) shl 31) or (((v1 shr 15) and 1) shl 30)) or (((v1 shr 23) and 1) shl 29)) or (((v1 shr 31) and 1) shl 28)) or (((v0 shr 7) and 1) shl 27)) or (((v0 shr 15) and 1) shl 26)) or (((v0 shr 23) and 1) shl 25)) or (((v0 shr 31) and 1) shl 24)) or (((v1 shr 5) and 1) shl 23)) or (((v1 shr 13) and 1) shl 22)) or (((v1 shr 21) and 1) shl 21)) or (((v1 shr 29) and 1) shl 20)) or (((v0 shr 5) and 1) shl 19)) or (((v0 shr 13) and 1) shl 18)) or (((v0 shr 21) and 1) shl 17)) or (((v0 shr 29) and 1) shl 16)) or (((v1 shr 3) and 1) shl 15)) or (((v1 shr 11) and 1) shl 14)) or (((v1 shr 19) and 1) shl 13)) or (((v1 shr 27) and 1) shl 12)) or (((v0 shr 3) and 1) shl 11)) or (((v0 shr 11) and 1) shl 10)) or (((v0 shr 19) and 1) shl 9)) or (((v0 shr 27) and 1) shl 8)) or (((v1 shr 1) and 1) shl 7)) or (((v1 shr 9) and 1) shl 6)) or (((v1 shr 17) and 1) shl 5)) or (((v1 shr 25) and 1) shl 4)) or (((v0 shr 1) and 1) shl 3)) or (((v0 shr 9) and 1) shl 2)) or (((v0 shr 17) and 1) shl 1)) or ((v0 shr 25) and 1))
+        val s0 = ((((((((((((((((((((((((((((((((((v1 ushr 6) and 1) shl 31) or (((v1 ushr 14) and 1) shl 30)) or (((v1 ushr 22) and 1) shl 29)) or (((v1 ushr 30) and 1) shl 28)) or (((v0 ushr 6) and 1) shl 27)) or (((v0 ushr 14) and 1) shl 26)) or (((v0 ushr 22) and 1) shl 25)) or (((v0 ushr 30) and 1) shl 24)) or (((v1 ushr 4) and 1) shl 23)) or (((v1 ushr 12) and 1) shl 22)) or (((v1 ushr 20) and 1) shl 21)) or (((v1 ushr 28) and 1) shl 20)) or (((v0 ushr 4) and 1) shl 19)) or (((v0 ushr 12) and 1) shl 18)) or (((v0 ushr 20) and 1) shl 17)) or (((v0 ushr 28) and 1) shl 16)) or (((v1 ushr 2) and 1) shl 15)) or (((v1 ushr 10) and 1) shl 14)) or (((v1 ushr 18) and 1) shl 13)) or (((v1 ushr 26) and 1) shl 12)) or (((v0 ushr 2) and 1) shl 11)) or (((v0 ushr 10) and 1) shl 10)) or (((v0 ushr 18) and 1) shl 9)) or (((v0 ushr 26) and 1) shl 8)) or (((v1 ushr 0) and 1) shl 7)) or (((v1 ushr 8) and 1) shl 6)) or (((v1 ushr 16) and 1) shl 5)) or (((v1 ushr 24) and 1) shl 4)) or (((v0 ushr 0) and 1) shl 3)) or (((v0 ushr 8) and 1) shl 2)) or (((v0 ushr 16) and 1) shl 1)) or ((v0 ushr 24) and 1))
+        val s1 = ((((((((((((((((((((((((((((((((((v1 ushr 7) and 1) shl 31) or (((v1 ushr 15) and 1) shl 30)) or (((v1 ushr 23) and 1) shl 29)) or (((v1 ushr 31) and 1) shl 28)) or (((v0 ushr 7) and 1) shl 27)) or (((v0 ushr 15) and 1) shl 26)) or (((v0 ushr 23) and 1) shl 25)) or (((v0 ushr 31) and 1) shl 24)) or (((v1 ushr 5) and 1) shl 23)) or (((v1 ushr 13) and 1) shl 22)) or (((v1 ushr 21) and 1) shl 21)) or (((v1 ushr 29) and 1) shl 20)) or (((v0 ushr 5) and 1) shl 19)) or (((v0 ushr 13) and 1) shl 18)) or (((v0 ushr 21) and 1) shl 17)) or (((v0 ushr 29) and 1) shl 16)) or (((v1 ushr 3) and 1) shl 15)) or (((v1 ushr 11) and 1) shl 14)) or (((v1 ushr 19) and 1) shl 13)) or (((v1 ushr 27) and 1) shl 12)) or (((v0 ushr 3) and 1) shl 11)) or (((v0 ushr 11) and 1) shl 10)) or (((v0 ushr 19) and 1) shl 9)) or (((v0 ushr 27) and 1) shl 8)) or (((v1 ushr 1) and 1) shl 7)) or (((v1 ushr 9) and 1) shl 6)) or (((v1 ushr 17) and 1) shl 5)) or (((v1 ushr 25) and 1) shl 4)) or (((v0 ushr 1) and 1) shl 3)) or (((v0 ushr 9) and 1) shl 2)) or (((v0 ushr 17) and 1) shl 1)) or ((v0 ushr 25) and 1))
         return s0 to s1
     }
 
     fun inversePermutation(s0: Int, s1: Int): ByteArray {
         val data = ByteArray(8)
-        data[0] = (((((((((((s1 shr 27) and 1) shl 7) or (((s0 shr 27) and 1) shl 6)) or (((s1 shr 19) and 1) shl 5)) or (((s0 shr 19) and 1) shl 4)) or (((s1 shr 11) and 1) shl 3)) or (((s0 shr 11) and 1) shl 2)) or (((s1 shr 3) and 1) shl 1)) or ((s0 shr 3) and 1))).toByte()
-        data[1] = (((((((((((s1 shr 26) and 1) shl 7) or (((s0 shr 26) and 1) shl 6)) or (((s1 shr 18) and 1) shl 5)) or (((s0 shr 18) and 1) shl 4)) or (((s1 shr 10) and 1) shl 3)) or (((s0 shr 10) and 1) shl 2)) or (((s1 shr 2) and 1) shl 1)) or ((s0 shr 2) and 1))).toByte()
-        data[2] = (((((((((((s1 shr 25) and 1) shl 7) or (((s0 shr 25) and 1) shl 6)) or (((s1 shr 17) and 1) shl 5)) or (((s0 shr 17) and 1) shl 4)) or (((s1 shr 9) and 1) shl 3)) or (((s0 shr 9) and 1) shl 2)) or (((s1 shr 1) and 1) shl 1)) or ((s0 shr 1) and 1))).toByte()
-        data[3] = (((((((((((s1 shr 24) and 1) shl 7) or (((s0 shr 24) and 1) shl 6)) or (((s1 shr 16) and 1) shl 5)) or (((s0 shr 16) and 1) shl 4)) or (((s1 shr 8) and 1) shl 3)) or (((s0 shr 8) and 1) shl 2)) or (((s1 shr 0) and 1) shl 1)) or ((s0 shr 0) and 1))).toByte()
-        data[4] = (((((((((((s1 shr 31) and 1) shl 7) or (((s0 shr 31) and 1) shl 6)) or (((s1 shr 23) and 1) shl 5)) or (((s0 shr 23) and 1) shl 4)) or (((s1 shr 15) and 1) shl 3)) or (((s0 shr 15) and 1) shl 2)) or (((s1 shr 7) and 1) shl 1)) or ((s0 shr 7) and 1))).toByte()
-        data[5] = (((((((((((s1 shr 30) and 1) shl 7) or (((s0 shr 30) and 1) shl 6)) or (((s1 shr 22) and 1) shl 5)) or (((s0 shr 22) and 1) shl 4)) or (((s1 shr 14) and 1) shl 3)) or (((s0 shr 14) and 1) shl 2)) or (((s1 shr 6) and 1) shl 1)) or ((s0 shr 6) and 1))).toByte()
-        data[6] = (((((((((((s1 shr 29) and 1) shl 7) or (((s0 shr 29) and 1) shl 6)) or (((s1 shr 21) and 1) shl 5)) or (((s0 shr 21) and 1) shl 4)) or (((s1 shr 13) and 1) shl 3)) or (((s0 shr 13) and 1) shl 2)) or (((s1 shr 5) and 1) shl 1)) or ((s0 shr 5) and 1))).toByte()
-        data[7] = (((((((((((s1 shr 28) and 1) shl 7) or (((s0 shr 28) and 1) shl 6)) or (((s1 shr 20) and 1) shl 5)) or (((s0 shr 20) and 1) shl 4)) or (((s1 shr 12) and 1) shl 3)) or (((s0 shr 12) and 1) shl 2)) or (((s1 shr 4) and 1) shl 1)) or ((s0 shr 4) and 1))).toByte()
+        data[0] = (((((((((((s1 ushr 27) and 1) shl 7) or (((s0 ushr 27) and 1) shl 6)) or (((s1 ushr 19) and 1) shl 5)) or (((s0 ushr 19) and 1) shl 4)) or (((s1 ushr 11) and 1) shl 3)) or (((s0 ushr 11) and 1) shl 2)) or (((s1 ushr 3) and 1) shl 1)) or ((s0 ushr 3) and 1))).toByte()
+        data[1] = (((((((((((s1 ushr 26) and 1) shl 7) or (((s0 ushr 26) and 1) shl 6)) or (((s1 ushr 18) and 1) shl 5)) or (((s0 ushr 18) and 1) shl 4)) or (((s1 ushr 10) and 1) shl 3)) or (((s0 ushr 10) and 1) shl 2)) or (((s1 ushr 2) and 1) shl 1)) or ((s0 ushr 2) and 1))).toByte()
+        data[2] = (((((((((((s1 ushr 25) and 1) shl 7) or (((s0 ushr 25) and 1) shl 6)) or (((s1 ushr 17) and 1) shl 5)) or (((s0 ushr 17) and 1) shl 4)) or (((s1 ushr 9) and 1) shl 3)) or (((s0 ushr 9) and 1) shl 2)) or (((s1 ushr 1) and 1) shl 1)) or ((s0 ushr 1) and 1))).toByte()
+        data[3] = (((((((((((s1 ushr 24) and 1) shl 7) or (((s0 ushr 24) and 1) shl 6)) or (((s1 ushr 16) and 1) shl 5)) or (((s0 ushr 16) and 1) shl 4)) or (((s1 ushr 8) and 1) shl 3)) or (((s0 ushr 8) and 1) shl 2)) or (((s1 ushr 0) and 1) shl 1)) or ((s0 ushr 0) and 1))).toByte()
+        data[4] = (((((((((((s1 ushr 31) and 1) shl 7) or (((s0 ushr 31) and 1) shl 6)) or (((s1 ushr 23) and 1) shl 5)) or (((s0 ushr 23) and 1) shl 4)) or (((s1 ushr 15) and 1) shl 3)) or (((s0 ushr 15) and 1) shl 2)) or (((s1 ushr 7) and 1) shl 1)) or ((s0 ushr 7) and 1))).toByte()
+        data[5] = (((((((((((s1 ushr 30) and 1) shl 7) or (((s0 ushr 30) and 1) shl 6)) or (((s1 ushr 22) and 1) shl 5)) or (((s0 ushr 22) and 1) shl 4)) or (((s1 ushr 14) and 1) shl 3)) or (((s0 ushr 14) and 1) shl 2)) or (((s1 ushr 6) and 1) shl 1)) or ((s0 ushr 6) and 1))).toByte()
+        data[6] = (((((((((((s1 ushr 29) and 1) shl 7) or (((s0 ushr 29) and 1) shl 6)) or (((s1 ushr 21) and 1) shl 5)) or (((s0 ushr 21) and 1) shl 4)) or (((s1 ushr 13) and 1) shl 3)) or (((s0 ushr 13) and 1) shl 2)) or (((s1 ushr 5) and 1) shl 1)) or ((s0 ushr 5) and 1))).toByte()
+        data[7] = (((((((((((s1 ushr 28) and 1) shl 7) or (((s0 ushr 28) and 1) shl 6)) or (((s1 ushr 20) and 1) shl 5)) or (((s0 ushr 20) and 1) shl 4)) or (((s1 ushr 12) and 1) shl 3)) or (((s0 ushr 12) and 1) shl 2)) or (((s1 ushr 4) and 1) shl 1)) or ((s0 ushr 4) and 1))).toByte()
         return data
     }
 
     fun f(state0: Int, key: IntArray): Int {
-        val t1 = ((((((state0 and 1) shl 31) or ((state0 and (0xf8000000).toInt()) shr 1)) or ((state0 and 528482304) shr 3)) or ((state0 and 33030144) shr 5)) or ((state0 and 2064384) shr 7))
-        val t2 = ((((((state0 and 129024) shl 15) or ((state0 and 8064) shl 13)) or ((state0 and 504) shl 11)) or ((state0 and 31) shl 9)) or ((state0 and (0x80000000).toInt()) shr 23))
-        val k0 = ((t1 shr 24) and 0xFF) xor key[0]
-        val k1 = ((t1 shr 16) and 0xFF) xor key[1]
-        val k2 = ((t1 shr 8) and 0xFF) xor key[2]
-        val k3 = ((t2 shr 24) and 0xFF) xor key[3]
-        val k4 = ((t2 shr 16) and 0xFF) xor key[4]
-        val k5 = ((t2 shr 8) and 0xFF) xor key[5]
-        val st = ((((((((SBOX[0][sboxBit((k0 shr 2))] shl 28) or (SBOX[1][sboxBit((((k0 and 3) shl 4) or (k1 shr 4)))] shl 24)) or (SBOX[2][sboxBit((((k1 and 15) shl 2) or (k2 shr 6)))] shl 20)) or (SBOX[3][sboxBit((k2 and 63))] shl 16)) or (SBOX[4][sboxBit((k3 shr 2))] shl 12)) or (SBOX[5][sboxBit((((k3 and 3) shl 4) or (k4 shr 4)))] shl 8)) or (SBOX[6][sboxBit((((k4 and 15) shl 2) or (k5 shr 6)))] shl 4)) or SBOX[7][sboxBit((k5 and 63))])
-        return ((((((((((((((((((((((((((((((((((st shr 16) and 1) shl 31) or (((st shr 25) and 1) shl 30)) or (((st shr 12) and 1) shl 29)) or (((st shr 11) and 1) shl 28)) or (((st shr 3) and 1) shl 27)) or (((st shr 20) and 1) shl 26)) or (((st shr 4) and 1) shl 25)) or (((st shr 15) and 1) shl 24)) or (((st shr 31) and 1) shl 23)) or (((st shr 17) and 1) shl 22)) or (((st shr 9) and 1) shl 21)) or (((st shr 6) and 1) shl 20)) or (((st shr 27) and 1) shl 19)) or (((st shr 14) and 1) shl 18)) or (((st shr 1) and 1) shl 17)) or (((st shr 22) and 1) shl 16)) or (((st shr 30) and 1) shl 15)) or (((st shr 24) and 1) shl 14)) or (((st shr 8) and 1) shl 13)) or (((st shr 18) and 1) shl 12)) or (((st shr 0) and 1) shl 11)) or (((st shr 5) and 1) shl 10)) or (((st shr 29) and 1) shl 9)) or (((st shr 23) and 1) shl 8)) or (((st shr 13) and 1) shl 7)) or (((st shr 19) and 1) shl 6)) or (((st shr 2) and 1) shl 5)) or (((st shr 26) and 1) shl 4)) or (((st shr 10) and 1) shl 3)) or (((st shr 21) and 1) shl 2)) or (((st shr 28) and 1) shl 1)) or ((st shr 7) and 1))
+        val t1 = ((((((state0 and 1) shl 31) or ((state0 and (0xf8000000).toInt()) ushr 1)) or ((state0 and 528482304) ushr 3)) or ((state0 and 33030144) ushr 5)) or ((state0 and 2064384) ushr 7))
+        val t2 = ((((((state0 and 129024) shl 15) or ((state0 and 8064) shl 13)) or ((state0 and 504) shl 11)) or ((state0 and 31) shl 9)) or ((state0 and (0x80000000).toInt()) ushr 23))
+        val k0 = ((t1 ushr 24) and 0xFF) xor key[0]
+        val k1 = ((t1 ushr 16) and 0xFF) xor key[1]
+        val k2 = ((t1 ushr 8) and 0xFF) xor key[2]
+        val k3 = ((t2 ushr 24) and 0xFF) xor key[3]
+        val k4 = ((t2 ushr 16) and 0xFF) xor key[4]
+        val k5 = ((t2 ushr 8) and 0xFF) xor key[5]
+        val st = ((((((((SBOX[0][sboxBit((k0 ushr 2))] shl 28) or (SBOX[1][sboxBit((((k0 and 3) shl 4) or (k1 ushr 4)))] shl 24)) or (SBOX[2][sboxBit((((k1 and 15) shl 2) or (k2 ushr 6)))] shl 20)) or (SBOX[3][sboxBit((k2 and 63))] shl 16)) or (SBOX[4][sboxBit((k3 ushr 2))] shl 12)) or (SBOX[5][sboxBit((((k3 and 3) shl 4) or (k4 ushr 4)))] shl 8)) or (SBOX[6][sboxBit((((k4 and 15) shl 2) or (k5 ushr 6)))] shl 4)) or SBOX[7][sboxBit((k5 and 63))])
+        return ((((((((((((((((((((((((((((((((((st ushr 16) and 1) shl 31) or (((st ushr 25) and 1) shl 30)) or (((st ushr 12) and 1) shl 29)) or (((st ushr 11) and 1) shl 28)) or (((st ushr 3) and 1) shl 27)) or (((st ushr 20) and 1) shl 26)) or (((st ushr 4) and 1) shl 25)) or (((st ushr 15) and 1) shl 24)) or (((st ushr 31) and 1) shl 23)) or (((st ushr 17) and 1) shl 22)) or (((st ushr 9) and 1) shl 21)) or (((st ushr 6) and 1) shl 20)) or (((st ushr 27) and 1) shl 19)) or (((st ushr 14) and 1) shl 18)) or (((st ushr 1) and 1) shl 17)) or (((st ushr 22) and 1) shl 16)) or (((st ushr 30) and 1) shl 15)) or (((st ushr 24) and 1) shl 14)) or (((st ushr 8) and 1) shl 13)) or (((st ushr 18) and 1) shl 12)) or (((st ushr 0) and 1) shl 11)) or (((st ushr 5) and 1) shl 10)) or (((st ushr 29) and 1) shl 9)) or (((st ushr 23) and 1) shl 8)) or (((st ushr 13) and 1) shl 7)) or (((st ushr 19) and 1) shl 6)) or (((st ushr 2) and 1) shl 5)) or (((st ushr 26) and 1) shl 4)) or (((st ushr 10) and 1) shl 3)) or (((st ushr 21) and 1) shl 2)) or (((st ushr 28) and 1) shl 1)) or ((st ushr 7) and 1))
     }
 
     fun crypt(input: ByteArray, key: Array<IntArray>): ByteArray {
@@ -73,12 +73,12 @@ object TripleDes {
         val v1 = (key[4].toInt() and 0xFF) or ((key[5].toInt() and 0xFF) shl 8) or ((key[6].toInt() and 0xFF) shl 16) or ((key[7].toInt() and 0xFF) shl 24)
         var c = 0
         for ((i, b) in KEY_PERM_C.withIndex()) {
-            val bit = if (b < 32) ((v0 shr (31 - b)) and 1) else ((v1 shr (63 - b)) and 1)
+            val bit = if (b < 32) ((v0 ushr (31 - b)) and 1) else ((v1 ushr (63 - b)) and 1)
             c = c or (bit shl (31 - i))
         }
         var d = 0
         for ((i, b) in KEY_PERM_D.withIndex()) {
-            val bit = if (b < 32) ((v0 shr (31 - b)) and 1) else ((v1 shr (63 - b)) and 1)
+            val bit = if (b < 32) ((v0 ushr (31 - b)) and 1) else ((v1 ushr (63 - b)) and 1)
             d = d or (bit shl (31 - i))
         }
         for (i in 0 until 16) {
@@ -88,11 +88,11 @@ object TripleDes {
             val togen = if (mode == DECRYPT) 15 - i else i
             for (j in 0 until 6) schedule[togen][j] = 0
             for (j in 0 until 24) {
-                val bit = (c shr (31 - KEY_COMPRESSION[j])) and 1
+                val bit = (c ushr (31 - KEY_COMPRESSION[j])) and 1
                 schedule[togen][j / 8] = schedule[togen][j / 8] or (bit shl (7 - (j % 8)))
             }
             for (j in 24 until 48) {
-                val bit = (d shr (31 - (KEY_COMPRESSION[j] - 27))) and 1
+                val bit = (d ushr (31 - (KEY_COMPRESSION[j] - 27))) and 1
                 schedule[togen][j / 8] = schedule[togen][j / 8] or (bit shl (7 - (j % 8)))
             }
         }
