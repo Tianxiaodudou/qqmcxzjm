@@ -45,7 +45,7 @@ private sealed interface HomeView {
     data object Radar : HomeView
     data class Chart(val chart: TopApi.Chart) : HomeView
     data class Songlist(val item: RecommendApi.Songlist) : HomeView
-    data class Feed(val card: RecommendApi.FeedCard) : HomeView
+    data class Card(val card: RecommendApi.FeedCard) : HomeView
 }
 
 @Composable
@@ -83,7 +83,7 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
                     is HomeView.Songlist -> PlaylistApi.songs(
                         PlaylistApi.Item(v.item.id, v.item.dirId, v.item.name, v.item.songNum)
                     )
-                    is HomeView.Feed -> {
+                    is HomeView.Card -> {
                         if (v.card.kind == "song") {
                             val sid = v.card.id.toLongOrNull()
                             if (sid == null) emptyList() else listOfNotNull(MusicApi.detail(sid))
@@ -151,7 +151,7 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
                     items(g.cards) { c ->
                         Row(
                             Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                                .clickable { view = HomeView.Feed(c) }
+                                .clickable { view = HomeView.Card(c) }
                                 .padding(horizontal = 16.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -207,7 +207,7 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
             is HomeView.Radar -> "每日推荐"
             is HomeView.Chart -> v.chart.name
             is HomeView.Songlist -> v.item.name
-            is HomeView.Feed -> v.card.name
+            is HomeView.Card -> v.card.name
             else -> ""
         }
         Column(Modifier.fillMaxSize()) {
