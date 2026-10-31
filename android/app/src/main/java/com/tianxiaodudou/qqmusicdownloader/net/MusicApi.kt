@@ -67,6 +67,18 @@ object MusicApi {
     }
 
     /** 依次尝试 320k / 128k，返回可播放的直链。 */
+    /** 按数字 songid 取详情（首页信息流的歌曲卡只带数字 ID）。 */
+    fun detail(songId: Long): Song? {
+        val p = JSONObject()
+        p.put("songid", songId)
+        val data = QqClient.cgi("music.trackInfo.UnifiedGetTrackInfo", "GetTrackInfo", p)
+        val o = data.optJSONObject("track_info")
+            ?: data.optJSONObject("trackInfo")
+            ?: data.optJSONObject("info")
+            ?: return null
+        return parseSong(o)
+    }
+
     fun songUrl(song: Song): String? {
         for (quality in listOf("M800", "M500")) {
             val url = vkey(song, quality)

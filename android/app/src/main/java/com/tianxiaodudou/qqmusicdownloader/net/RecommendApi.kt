@@ -73,6 +73,58 @@ object RecommendApi {
         return out
     }
 
+    data class FeedCard(val kind: String, val id: String, val name: String, val sub: String, val cover: String)
+    data class FeedGroup(val title: String, val cards: List<FeedCard>)
+
+    /** 首页信息流（shelves -> niches -> cards），对应 fpk 的 RecommendFeed / get_recommend_feed。 */
+    fun homeFeed(page: Int = 1, limit: Int = 30): List<FeedGroup> {
+        val p = JSONObject()
+        p.put("direction", 0)
+        p.put("page", page)
+        p.put("s_num", 0)
+        p.put("v_cache", org.json.JSONArray())
+        val data = QqClient.cgi("music.recommend.RecommendFeed", "get_recommend_feed", p)
+        val shelves = data.optJSONArray("v_shelf") ?: return emptyList()
+        val out = ArrayList<FeedGroup>()
+        for (i in 0 until shelves.length()) {
+            val sh = shelves.optJSONObject(i) ?: continue
+            var title = sh.optString("title_content").ifEmpty { sh.optString("title_template") }
+            if (title.isEmpty() || title.startsWith("{")) title = "为你推荐"
+            val cards = ArrayList<FeedCard>()
+            val niches = sh.optJSONArray("v_niche")
+            if (niches != null) {
+                for (j in 0 until niches.length()) {
+                    val nc = niches.optJSONObject(j) ?: continue
+                    val arr = nc.optJSONArray("v_card") ?: continue
+                    for (k in 0 until arr.length()) {
+                        val raw = arr.optJSONObject(k) ?: continue
+                        cardOf(raw)?.let { cards.add(it) }
+                    }
+                }
+            }
+            if (cards.isNotEmpty()) {
+                out.add(FeedGroup(title, cards.take(limit)))
+                if (out.size >= 2) break
+            }
+        }
+        return out
+    }
+
+    private fun cardOf(raw: JSONObject): FeedCard? {
+        val id = raw.optString("id")
+        val title = raw.optString("title")
+        if (id.isEmpty() || title.isEmpty()) return null
+        val type = raw.optInt("type")
+        val module = raw.optJSONObject("extra_info")?.optString("moduleID").orEmpty()
+        val sub = raw.optString("subtitle")
+        val cover = raw.optString("cover")
+        return when {
+            module.startsWith("playlist") || type == 500 -> FeedCard("songlist", id, title, sub, cover)
+            type == 200 -> FeedCard("song", id, title, sub, cover)
+            else -> null
+        }
+    }
+
     /** 每日推荐（私人雷达），对应 fpk 的 TrackRelationServer / GetRadarSong。 */
     fun radar(page: Int = 1): List<MusicApi.Song> {
         val p = JSONObject()

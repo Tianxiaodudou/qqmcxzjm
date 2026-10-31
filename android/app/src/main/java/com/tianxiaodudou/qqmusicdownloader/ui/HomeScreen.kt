@@ -45,6 +45,7 @@ private sealed interface HomeView {
     data object Radar : HomeView
     data class Chart(val chart: TopApi.Chart) : HomeView
     data class Songlist(val item: RecommendApi.Songlist) : HomeView
+    data class Feed(val card: RecommendApi.FeedCard) : HomeView
 }
 
 @Composable
@@ -52,6 +53,7 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
     var charts by remember { mutableStateOf<List<TopApi.Chart>?>(null) }
     var songlists by remember { mutableStateOf<List<RecommendApi.Songlist>?>(null) }
     var newSongs by remember { mutableStateOf<List<MusicApi.Song>?>(null) }
+    var feed by remember { mutableStateOf<List<RecommendApi.FeedGroup>?>(null) }
     var view by remember { mutableStateOf<HomeView>(HomeView.Feed) }
     var songs by remember { mutableStateOf<List<MusicApi.Song>?>(null) }
     var error by remember { mutableStateOf("") }
@@ -61,6 +63,7 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
             runCatching { TopApi.charts() }.onSuccess { charts = it }.onFailure { charts = emptyList() }
             runCatching { RecommendApi.songlists() }.onSuccess { songlists = it }.onFailure { songlists = emptyList() }
             runCatching { RecommendApi.newSongs() }.onSuccess { newSongs = it }.onFailure { newSongs = emptyList() }
+            runCatching { RecommendApi.homeFeed() }.onSuccess { feed = it }.onFailure { feed = emptyList() }
         }
         if (charts.isNullOrEmpty() && songlists.isNullOrEmpty() && newSongs.isNullOrEmpty()) {
             error = "推荐加载失败，请检查登录状态"
@@ -80,6 +83,14 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
                     is HomeView.Songlist -> PlaylistApi.songs(
                         PlaylistApi.Item(v.item.id, v.item.dirId, v.item.name, v.item.songNum)
                     )
+                    is HomeView.Feed -> {
+                        if (v.card.kind == "song") {
+                            val sid = v.card.id.toLongOrNull()
+                            if (sid == null) emptyList() else listOfNotNull(MusicApi.detail(sid))
+                        } else {
+                            PlaylistApi.songs(PlaylistApi.Item(v.card.id, "0", v.card.name, 0))
+                        }
+                    }
                     else -> emptyList()
                 }
             }
@@ -130,6 +141,33 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
                 }
             }
 
+            item { SectionTitle("为你推荐") }
+            val fd = feed
+            if (fd == null) {
+                item { LoadingRow() }
+            } else {
+                for (g in fd) {
+                    item { SubTitle(g.title) }
+                    items(g.cards) { c ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                                .clickable { view = HomeView.Feed(c) }
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Cover(c.cover, 44.dp)
+                            Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                                Text(c.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp)
+                                Text(
+                                    c.sub, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             item { SectionTitle("每日推荐") }
             item {
                 Row(
@@ -169,6 +207,7 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
             is HomeView.Radar -> "每日推荐"
             is HomeView.Chart -> v.chart.name
             is HomeView.Songlist -> v.item.name
+            is HomeView.Feed -> v.card.name
             else -> ""
         }
         Column(Modifier.fillMaxSize()) {
@@ -204,6 +243,13 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
 private fun SectionTitle(text: String) {
     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 6.dp)) {
         Text(text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun SubTitle(text: String) {
+    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp)) {
+        Text(text, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
     }
 }
 
