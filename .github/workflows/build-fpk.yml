@@ -88,9 +88,9 @@ jobs:
         if: steps.unit.outcome == 'failure'
         working-directory: android
         run: |
-          grep -E "FAILED|AssertionError|expected:|but was:|^e: |error:|Caused by" test.log | head -40 | while IFS= read -r line; do echo "::error::$line"; done
-          echo "----- test.log tail -----"
-          tail -60 test.log
+          sed -n '/\* What went wrong/,/^\* Try/p' test.log | head -25 | while IFS= read -r line; do echo "::error::$line"; done
+          grep -E "FAILED|AssertionError|expected:|but was:|^e: |Caused by" test.log | head -25 | while IFS= read -r line; do echo "::error::$line"; done
+          head -40 test.log | while IFS= read -r line; do echo "::error::HEAD $line"; done
           exit 1
 
       - name: 构建 release APK
