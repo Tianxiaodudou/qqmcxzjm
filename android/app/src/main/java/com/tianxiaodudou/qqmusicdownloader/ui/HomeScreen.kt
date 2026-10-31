@@ -1,6 +1,8 @@
 package com.tianxiaodudou.qqmusicdownloader.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -52,6 +55,9 @@ private sealed interface HomeView {
     data object Singers : HomeView
     data class SingerSongs(val singer: SingerApi.Singer) : HomeView
     data class Hot(val kw: String = "") : HomeView
+    data object Songlists : HomeView
+    data object NewSongs : HomeView
+    data object Charts : HomeView
     data class AlbumSongs(val album: AlbumApi.Album) : HomeView
 }
 
@@ -86,6 +92,10 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
             hot = null
             val r = withContext(Dispatchers.IO) { runCatching { MusicApi.hotKeys() } }
             r.onSuccess { hot = it }.onFailure { hot = emptyList() }
+            return@LaunchedEffect
+        }
+        if (v is HomeView.NewSongs) {
+            songs = newSongs ?: emptyList()
             return@LaunchedEffect
         }
         if (v is HomeView.Singers) {
@@ -129,46 +139,41 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
         r.onSuccess { songs = it }.onFailure { error = it.message ?: "歌曲加载失败"; songs = emptyList() }
     }
 
+    val entries = listOf(
+        "推荐歌单" to HomeView.Songlists,
+        "新歌速递" to HomeView.NewSongs,
+        "每日推荐" to HomeView.Radar,
+        "新碟上架" to HomeView.Albums,
+        "热门歌手" to HomeView.Singers,
+        "热搜榜" to HomeView.Hot(),
+        "排行榜" to HomeView.Charts,
+        "猜你喜欢" to HomeView.Guess,
+    )
     val v = view
     if (v is HomeView.Feed) {
         LazyColumn(Modifier.fillMaxSize()) {
-            item { SectionTitle("推荐歌单") }
-            val sl = songlists
-            if (sl == null) {
-                item { LoadingRow() }
-            } else if (sl.isEmpty()) {
-                item { HintRow("暂无推荐歌单") }
-            } else {
-                items(sl) { s ->
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                            .clickable { view = HomeView.Songlist(s) }
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Cover(s.pic, 48.dp)
-                        Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                            Text(s.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp)
-                            Text(
-                                s.songNum.toString() + " 首 · " + fmtPlay(s.listenNum) +
-                                    (if (s.creator.isEmpty()) "" else " · " + s.creator),
-                                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+            item {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    entries.chunked(3).forEach { row ->
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            row.forEach { e ->
+                                OutlinedButton(
+                                    onClick = { view = e.second },
+                                    shape = RoundedCornerShape(50),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Text(
+                                        e.first, fontSize = 13.sp, maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
                         }
                     }
-                }
-            }
-
-            item { SectionTitle("新歌速递") }
-            val ns = newSongs
-            if (ns == null) {
-                item { LoadingRow() }
-            } else if (ns.isEmpty()) {
-                item { HintRow("暂无新歌") }
-            } else {
-                itemsIndexed(ns) { i, song ->
-                    SongRow(song, onClick = { onPlay(ns, i) }, onDl = { onDownload(song) })
                 }
             }
 
@@ -198,66 +203,7 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
                     }
                 }
             }
-
-            item { SectionTitle("每日推荐") }
-            item {
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                        .clickable { view = HomeView.Radar }
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                ) { Text("私人雷达（每日 30 首）", fontSize = 15.sp) }
-            }
-
-            item { SectionTitle("新碟上架") }
-            item {
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                        .clickable { view = HomeView.Albums }
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                ) { Text("最新专辑（内地）", fontSize = 15.sp) }
-            }
-
-            item { SectionTitle("热门歌手") }
-            item {
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                        .clickable { view = HomeView.Singers }
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                ) { Text("全部歌手", fontSize = 15.sp) }
-            }
-
-            item { SectionTitle("热搜榜") }
-            item {
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                        .clickable { view = HomeView.Hot() }
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                ) { Text("大家都在搜", fontSize = 15.sp) }
-            }
-
-            item { SectionTitle("排行榜") }
-            item {
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                        .clickable { view = HomeView.Guess }
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                ) { Text("猜你喜欢", fontSize = 15.sp) }
-            }
-            val cs = charts
-            if (cs == null) {
-                item { LoadingRow() }
-            } else if (cs.isEmpty()) {
-                item { HintRow(error.ifEmpty { "暂无榜单" }) }
-            } else {
-                items(cs) { c ->
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                            .clickable { view = HomeView.Chart(c) }
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                    ) { Text(c.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp) }
-                }
-            }
-            item { Box(Modifier.padding(16.dp)) {} }
+            item { Box(Modifier.padding(24.dp)) {} }
         }
     } else if (v is HomeView.Albums) {
         Column(Modifier.fillMaxSize()) {
@@ -292,6 +238,76 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
                                     fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
+                        }
+                    }
+                }
+            }
+        }
+    } else if (v is HomeView.Songlists) {
+        Column(Modifier.fillMaxSize()) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = { view = HomeView.Feed }) { Text("返回") }
+                Text("推荐歌单", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            }
+            val sl = songlists
+            if (sl == null) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            } else if (sl.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("暂无推荐歌单", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else {
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(sl) { s ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                                .clickable { view = HomeView.Songlist(s) }
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Cover(s.pic, 48.dp)
+                            Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                                Text(s.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp)
+                                Text(
+                                    s.songNum.toString() + " 首 · " + fmtPlay(s.listenNum) +
+                                        (if (s.creator.isEmpty()) "" else " · " + s.creator),
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } else if (v is HomeView.Charts) {
+        Column(Modifier.fillMaxSize()) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = { view = HomeView.Feed }) { Text("返回") }
+                Text("排行榜", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            }
+            val cs = charts
+            if (cs == null) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            } else if (cs.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("暂无榜单", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else {
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(cs) { c ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                                .clickable { view = HomeView.Chart(c) }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                        ) {
+                            Text(c.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp)
                         }
                     }
                 }
@@ -373,6 +389,7 @@ fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi
             is HomeView.AlbumSongs -> v.album.name
             is HomeView.Hot -> if (v.kw.isEmpty()) "热搜榜" else v.kw
             is HomeView.SingerSongs -> v.singer.name
+            is HomeView.NewSongs -> "新歌速递"
             else -> ""
         }
         Column(Modifier.fillMaxSize()) {

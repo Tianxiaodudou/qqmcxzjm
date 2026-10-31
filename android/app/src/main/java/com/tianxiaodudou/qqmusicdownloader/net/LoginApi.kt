@@ -57,12 +57,16 @@ object LoginApi {
             "&js_ver=20102616&js_type=1&pt_uistyle=40" +
             "&aid=" + APPID + "&daid=383&pt_3rd_aid=" + THIRD_AID + "&has_onekey=1"
         val text = QqClient.get(url, mapOf("Referer" to REFERER)).use { it.body?.string().orEmpty() }
-        // 实际返回里第 5、6 个参数前可能带空格，例如 ptuiCB('66','0','','0','二维码未失效', '')
-        val m = Regex("""ptuiCB\('(\d+)','\d+','([^']*)','\d+','([^']*)',\s*'([^']*)'\)""").find(text)
+        // 与 fpk 一样先取出 ptuiCB(...) 整体，再按单引号切参数：
+        // 严格匹配 6 段的正则在昵称带引号、或参数间有空格时会整体失配，
+        // 异常被上层吃掉后就会永远停在「已扫码」。
+        val body = Regex("""ptuiCB\((.*?)\)""").find(text)?.groupValues?.get(1)
             ?: throw QqError("无法解析扫码状态")
-        val code = m.groupValues[1]
-        val redirect = m.groupValues[2]
-        val nick = m.groupValues[4]
+        val args = Regex("""'(.*?)'""").findAll(body).map { it.groupValues[1] }.toList()
+        if (args.size < 5) throw QqError("扫码状态参数不完整")
+        val code = args[0]
+        val redirect = args[2]
+        val nick = if (args.size > 5) args[5] else ""
         return when (code) {
             "0" -> try {
                 State.LoggedIn(authorize(redirect, nick))
@@ -72,6 +76,7 @@ object LoginApi {
             "1", "67" -> State.Scanned
             "2", "65" -> State.Expired
             "3" -> State.Cancelled
+            "66" -> State.Waiting
             else -> State.Waiting
         }
     }
