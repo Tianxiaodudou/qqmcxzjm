@@ -29,104 +29,202 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tianxiaodudou.qqmusicdownloader.net.MusicApi
+import com.tianxiaodudou.qqmusicdownloader.net.PlaylistApi
 import com.tianxiaodudou.qqmusicdownloader.net.RecommendApi
 import com.tianxiaodudou.qqmusicdownloader.net.TopApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+private sealed interface HomeView {
+    data object Feed : HomeView
+    data object Guess : HomeView
+    data class Chart(val chart: TopApi.Chart) : HomeView
+    data class Songlist(val item: RecommendApi.Songlist) : HomeView
+}
+
 @Composable
 fun HomeScreen(onPlay: (List<MusicApi.Song>, Int) -> Unit, onDownload: (MusicApi.Song) -> Unit) {
     var charts by remember { mutableStateOf<List<TopApi.Chart>?>(null) }
-    var opened by remember { mutableStateOf<TopApi.Chart?>(null) }
+    var songlists by remember { mutableStateOf<List<RecommendApi.Songlist>?>(null) }
+    var newSongs by remember { mutableStateOf<List<MusicApi.Song>?>(null) }
+    var view by remember { mutableStateOf<HomeView>(HomeView.Feed) }
     var songs by remember { mutableStateOf<List<MusicApi.Song>?>(null) }
-    var guess by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
-        val r = withContext(Dispatchers.IO) { runCatching { TopApi.charts() } }
-        r.onSuccess { charts = it }.onFailure { error = it.message ?: "榜单加载失败"; charts = emptyList() }
-    }
-    LaunchedEffect(opened, guess) {
-        if (guess) {
-            songs = null
-            val r = withContext(Dispatchers.IO) { runCatching { RecommendApi.guess() } }
-            r.onSuccess { songs = it }.onFailure { error = it.message ?: "推荐加载失败"; songs = emptyList() }
-            return@LaunchedEffect
+        withContext(Dispatchers.IO) {
+            runCatching { TopApi.charts() }.onSuccess { charts = it }.onFailure { charts = emptyList() }
+            runCatching { RecommendApi.songlists() }.onSuccess { songlists = it }.onFailure { songlists = emptyList() }
+            runCatching { RecommendApi.newSongs() }.onSuccess { newSongs = it }.onFailure { newSongs = emptyList() }
         }
-        val c = opened ?: return@LaunchedEffect
+        if (charts.isNullOrEmpty() && songlists.isNullOrEmpty() && newSongs.isNullOrEmpty()) {
+            error = "推荐加载失败，请检查登录状态"
+        }
+    }
+    LaunchedEffect(view) {
+        val v = view
+        if (v is HomeView.Feed) return@LaunchedEffect
         songs = null
-        val r = withContext(Dispatchers.IO) { runCatching { TopApi.songs(c) } }
+        error = ""
+        val r = withContext(Dispatchers.IO) {
+            runCatching {
+                when (v) {
+                    is HomeView.Guess -> RecommendApi.guess()
+                    is HomeView.Chart -> TopApi.songs(v.chart)
+                    is HomeView.Songlist -> PlaylistApi.songs(
+                        PlaylistApi.Item(v.item.id, v.item.dirId, v.item.name, v.item.songNum)
+                    )
+                    else -> emptyList()
+                }
+            }
+        }
         r.onSuccess { songs = it }.onFailure { error = it.message ?: "歌曲加载失败"; songs = emptyList() }
     }
 
-    val current = opened
-    if (current == null && !guess) {
-        Column(Modifier.fillMaxSize()) {
-            Row(Modifier.fillMaxWidth().padding(16.dp)) {
-                Text("排行榜", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-            }
-            val list = charts
-            if (list == null) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
-            } else if (list.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(error.ifEmpty { "暂无榜单" }, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+    val v = view
+    if (v is HomeView.Feed) {
+        LazyColumn(Modifier.fillMaxSize()) {
+            item { SectionTitle("推荐歌单") }
+            val sl = songlists
+            if (sl == null) {
+                item { LoadingRow() }
+            } else if (sl.isEmpty()) {
+                item { HintRow("暂无推荐歌单") }
             } else {
-                LazyColumn(Modifier.fillMaxSize()) {
-                    item {
-                        Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                                .clickable { guess = true }
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                        ) { Text("猜你喜欢", fontSize = 15.sp) }
-                    }
-                    items(list) { c ->
-                        Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                                .clickable { opened = c }
-                                .padding(horizontal = 16.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(c.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp)
+                items(sl) { s ->
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                            .clickable { view = HomeView.Songlist(s) }
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(s.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp)
+                            Text(
+                                s.songNum.toString() + " 首 · " + fmtPlay(s.listenNum) +
+                                    (if (s.creator.isEmpty()) "" else " · " + s.creator),
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
                 }
             }
+
+            item { SectionTitle("新歌速递") }
+            val ns = newSongs
+            if (ns == null) {
+                item { LoadingRow() }
+            } else if (ns.isEmpty()) {
+                item { HintRow("暂无新歌") }
+            } else {
+                itemsIndexed(ns) { i, song ->
+                    SongRow(song) { onPlay(ns, i) } { onDownload(song) }
+                }
+            }
+
+            item { SectionTitle("排行榜") }
+            item {
+                Row(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                        .clickable { view = HomeView.Guess }
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                ) { Text("猜你喜欢", fontSize = 15.sp) }
+            }
+            val cs = charts
+            if (cs == null) {
+                item { LoadingRow() }
+            } else if (cs.isEmpty()) {
+                item { HintRow(error.ifEmpty { "暂无榜单" }) }
+            } else {
+                items(cs) { c ->
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+                            .clickable { view = HomeView.Chart(c) }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                    ) { Text(c.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp) }
+                }
+            }
+            item { Box(Modifier.padding(16.dp)) {} }
         }
     } else {
+        val title = when (v) {
+            is HomeView.Guess -> "猜你喜欢"
+            is HomeView.Chart -> v.chart.name
+            is HomeView.Songlist -> v.item.name
+            else -> ""
+        }
         Column(Modifier.fillMaxSize()) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = { opened = null; guess = false }) { Text("返回") }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(onClick = { view = HomeView.Feed; songs = null }) { Text("返回") }
                 Text(
-                    if (guess) "猜你喜欢" else current?.name.orEmpty(),
-                    fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
             }
             val list = songs
             if (list == null) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+            } else if (list.isEmpty()) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(error.ifEmpty { "暂无歌曲" }, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             } else {
                 LazyColumn(Modifier.fillMaxSize()) {
                     itemsIndexed(list) { i, song ->
-                        Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-                                .clickable { onPlay(list, i) }
-                                .padding(horizontal = 16.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                Text(song.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp)
-                                Text(
-                                    song.singers, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                    fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            TextButton(onClick = { onDownload(song) }) { Text("下载", fontSize = 12.sp) }
-                        }
+                        SongRow(song) { onPlay(list, i) } { onDownload(song) }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun SectionTitle(text: String) {
+    Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 6.dp)) {
+        Text(text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun LoadingRow() {
+    Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+        CircularProgressIndicator(Modifier.padding(4.dp))
+    }
+}
+
+@Composable
+private fun HintRow(text: String) {
+    Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+        Text(text, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp)
+    }
+}
+
+@Composable
+private fun SongRow(song: MusicApi.Song, onClick: () -> Unit, onDownload: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(song.name, maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 15.sp)
+            Text(
+                song.singers, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        TextButton(onClick = onDownload) { Text("下载", fontSize = 12.sp) }
+    }
+}
+
+private fun fmtPlay(n: Int): String = when {
+    n >= 100000000 -> String.format("%.1f 亿", n / 100000000.0)
+    n >= 10000 -> String.format("%.1f 万", n / 10000.0)
+    else -> n.toString()
 }
