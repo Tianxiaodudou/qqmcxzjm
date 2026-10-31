@@ -67,6 +67,27 @@ object MusicApi {
     }
 
     /** 依次尝试 320k / 128k，返回可播放的直链。 */
+    /** 热搜词：music.musicsearch.HotkeyService / GetHotkeyForQQMusicMobile。 */
+    fun hotKeys(): List<String> {
+        val p = JSONObject()
+        p.put("search_id", searchId())
+        val data = QqClient.cgi("music.musicsearch.HotkeyService", "GetHotkeyForQQMusicMobile", p)
+        val arr = data.optJSONArray("vec_hotkey") ?: return emptyList()
+        val out = ArrayList<String>()
+        for (i in 0 until arr.length()) {
+            val q = arr.optJSONObject(i)?.optString("query").orEmpty()
+            if (q.isNotEmpty() && !out.contains(q)) out.add(q)
+        }
+        return out
+    }
+
+    private fun searchId(): String {
+        val e = kotlin.random.Random.nextInt(1, 21).toLong()
+        val n = kotlin.random.Random.nextInt(0, 4194304).toLong()
+        val r = System.currentTimeMillis() % (24L * 60 * 60 * 1000)
+        return (e * 18014398509481984L + n * 4294967296L + r).toString()
+    }
+
     /** 按数字 songid 取详情（首页信息流的歌曲卡只带数字 ID）。 */
     fun detail(songId: Long): Song? {
         val p = JSONObject()
