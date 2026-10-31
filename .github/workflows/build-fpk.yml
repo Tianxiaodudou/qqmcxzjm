@@ -92,6 +92,7 @@ jobs:
         run: |
           sed -n '/\* What went wrong/,/^\* Try/p' test.log | head -25 | while IFS= read -r line; do echo "::error::$line"; done
           grep -E "FAILED|AssertionError|expected:|but was:|^e: |Caused by" test.log | head -25 | while IFS= read -r line; do echo "::error::$line"; done
+          sed -n 's/.*<failure message="\([^"]*\)".*/\1/p' app/build/test-results/testDebugUnitTest/*.xml 2>/dev/null | head -10 | while IFS= read -r line; do echo "::error::ASSERT $line"; done
           head -40 test.log | while IFS= read -r line; do echo "::error::HEAD $line"; done
           exit 1
 

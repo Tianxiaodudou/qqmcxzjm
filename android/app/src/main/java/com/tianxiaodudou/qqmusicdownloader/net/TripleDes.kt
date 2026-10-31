@@ -83,8 +83,8 @@ object TripleDes {
         }
         for (i in 0 until 16) {
             val sh = KEY_RND_SHIFT[i]
-            c = ((c shl sh) or (c shr (28 - sh))) and (0xFFFFFFF0).toInt()
-            d = ((d shl sh) or (d shr (28 - sh))) and (0xFFFFFFF0).toInt()
+            c = ((c shl sh) or (c ushr (28 - sh))) and (0xFFFFFFF0).toInt()
+            d = ((d shl sh) or (d ushr (28 - sh))) and (0xFFFFFFF0).toInt()
             val togen = if (mode == DECRYPT) 15 - i else i
             for (j in 0 until 6) schedule[togen][j] = 0
             for (j in 0 until 24) {
