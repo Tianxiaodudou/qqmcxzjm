@@ -45,7 +45,27 @@ object PlaylistApi {
 
     fun like(song: MusicApi.Song): Boolean = addSong(201, 0, song)
 
+    /** 「我喜欢」（dirId 201）走收藏接口：disstid=0 + dirid=201 + enc_host_uin。 */
+    fun favSongs(page: Int = 1, num: Int = 100): List<MusicApi.Song> {
+        val uin = QqClient.session?.uin ?: return emptyList()
+        val p = JSONObject()
+        p.put("disstid", 0)
+        p.put("dirid", 201)
+        p.put("tag", true)
+        p.put("song_begin", num * (page - 1))
+        p.put("song_num", num)
+        p.put("userinfo", true)
+        p.put("orderlist", true)
+        p.put("enc_host_uin", uin.toString())
+        val data = QqClient.cgi("music.srfDissInfo.DissInfo", "CgiGetDiss", p)
+        val arr = data.optJSONArray("songlist") ?: return emptyList()
+        val out = ArrayList<MusicApi.Song>()
+        for (i in 0 until arr.length()) MusicApi.parseSong(arr.optJSONObject(i))?.let { out.add(it) }
+        return out
+    }
+
     fun songs(item: Item, page: Int = 1, num: Int = 100): List<MusicApi.Song> {
+        if (item.dirId == "201") return favSongs(page, num)
         val p = JSONObject()
         p.put("disstid", item.id)
         p.put("dirid", item.dirId.ifEmpty { "0" })
