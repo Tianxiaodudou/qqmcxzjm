@@ -80,9 +80,11 @@ jobs:
         id: unit
         continue-on-error: true
         working-directory: android
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -o pipefail
-          gradle --no-daemon testDebugUnitTest 2>&1 | tee test.log
+          gradle --no-daemon testDebugUnitTest -PappVersion="$VERSION" 2>&1 | tee test.log
 
       - name: 单元测试失败时输出错误
         if: steps.unit.outcome == 'failure'
