@@ -77,6 +77,8 @@ jobs:
             -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" | grep -E "Alias name|SHA256"
 
       - name: 构建 release APK
+        id: build
+        continue-on-error: true
         working-directory: android
         env:
           ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/signing/release.p12
@@ -84,7 +86,18 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           VERSION: ${{ steps.ver.outputs.version }}
-        run: gradle --no-daemon --stacktrace assembleRelease -PappVersion="$VERSION"
+        run: |
+          set -o pipefail
+          gradle --no-daemon --stacktrace assembleRelease -PappVersion="$VERSION" 2>&1 | tee build.log
+
+      - name: 构建失败时把错误写进注解
+        if: steps.build.outcome == 'failure'
+        working-directory: android
+        run: |
+          grep -E "^e: |error:|FAILURE:|Caused by|Execution failed|> Task .* FAILED" build.log | head -40 | while IFS= read -r line; do echo "::error::$line"; done
+          echo "----- build.log tail -----"
+          tail -50 build.log
+          exit 1
 
       - name: 校验签名与版本号
         run: |
