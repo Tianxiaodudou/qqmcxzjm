@@ -102,21 +102,35 @@ object LyricApi {
 
     private fun parseQrc(xml: String): List<Line> {
         val out = ArrayList<Line>()
-        val lineRe = Regex("""\[(\d+),(\d+)]([^\[]*)""")
+        // 与 fpk 的 parseQrc 一致：先取 LyricContent 属性值并反转义实体，
+        // 否则歌词里的 &apos; / &#10; 会原样显示成符号。
+        var body = xml
+        val at = body.indexOf("LyricContent=\"")
+        if (at >= 0) {
+            body = body.substring(at + 14)
+            val end = body.indexOf("\"/>")
+            if (end > 0) body = body.substring(0, end)
+        }
+        body = body
+            .replace("&#10;", "\n").replace("&#xA;", "\n").replace("&#xa;", "\n")
+            .replace("&quot;", "\"").replace("&apos;", "'")
+            .replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+        val lineRe = Regex("""\[(\d+),(\d+)\]([^\r\n]*)""")
         val wordRe = Regex("""([^()]*)\((\d+),(\d+)\)""")
-        for (m in lineRe.findAll(xml)) {
+        for (m in lineRe.findAll(body)) {
             val lineStart = m.groupValues[1].toIntOrNull() ?: continue
-            val body = m.groupValues[3]
-            val words = wordRe.findAll(body).mapNotNull { w ->
-                val text = w.groupValues[1]
-                val s = w.groupValues[2].toIntOrNull() ?: return@mapNotNull null
+            val row = m.groupValues[3]
+            val words = wordRe.findAll(row).mapNotNull { w ->
+                val t = w.groupValues[1]
+                val st = w.groupValues[2].toIntOrNull() ?: return@mapNotNull null
                 val d = w.groupValues[3].toIntOrNull() ?: 0
-                if (text.isEmpty()) null else Word(text, s, d)
+                if (t.isEmpty()) null else Word(t, st, d)
             }.toList()
-            if (words.isEmpty()) continue
-            val relative = words.first().startMs < lineStart
-            val fixed = words.map { if (relative) it.copy(startMs = it.startMs + lineStart) else it.copy(startMs = it.startMs) }
-            out.add(Line(lineStart, fixed.joinToString("") { it.text }, fixed))
+            val plain = words.joinToString("") { it.text }.trim()
+            if (plain.isEmpty()) continue
+            val relative = words.isNotEmpty() && words.first().startMs < lineStart
+            val fixed = if (relative) words.map { it.copy(startMs = it.startMs + lineStart) } else words
+            out.add(Line(lineStart, plain, fixed))
         }
         out.sortBy { it.timeMs }
         return out

@@ -91,11 +91,11 @@ object MusicApi {
     /** 按数字 songid 取详情（首页信息流的歌曲卡只带数字 ID）。 */
     fun detail(songId: Long): Song? {
         val p = JSONObject()
-        p.put("songid", songId)
-        val data = QqClient.cgi("music.trackInfo.UnifiedGetTrackInfo", "GetTrackInfo", p)
-        val o = data.optJSONObject("track_info")
-            ?: data.optJSONObject("trackInfo")
-            ?: data.optJSONObject("info")
+        p.put("song_id", songId)
+        val data = QqClient.cgi("music.pf_song_detail_svr", "get_song_detail_yqq", p)
+        val o = data.optJSONObject("track")
+            ?: data.optJSONObject("song")
+            ?: data.optJSONObject("track_info")
             ?: return null
         return parseSong(o)
     }

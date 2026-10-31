@@ -65,7 +65,7 @@ object PlaylistApi {
     }
 
     fun songs(item: Item, page: Int = 1, num: Int = 100): List<MusicApi.Song> {
-        if (item.dirId == "201") return favSongs(page, num)
+        if (item.dirId == "201" || item.id == "201") return favSongs(page, num)
         val p = JSONObject()
         p.put("disstid", item.id)
         p.put("dirid", item.dirId.ifEmpty { "0" })
