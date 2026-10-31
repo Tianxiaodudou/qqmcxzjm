@@ -106,10 +106,10 @@ object QqClient {
      * jar 里残留的 qrsig / uin 会让服务端 302 但不下发 p_skey。
      * 响应里的 Set-Cookie 仍写回主 jar，供后续 oauth2 使用。
      */
-    fun getAnonymous(url: String, headers: Map<String, String>): okhttp3.Response {
+    fun getAnonymous(url: String, headers: Map<String, String>, followRedirects: Boolean = false): okhttp3.Response {
         val jar = store
         val client = http.newBuilder()
-            .followRedirects(false).followSslRedirects(false)
+            .followRedirects(followRedirects).followSslRedirects(followRedirects)
             .cookieJar(object : okhttp3.CookieJar {
                 override fun saveFromResponse(u: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
                     jar?.saveFromResponse(u, cookies)
@@ -121,6 +121,9 @@ object QqClient {
         for ((k, v) in headers) b.header(k, v)
         return client.newCall(b.build()).execute()
     }
+
+    /** 从持久化 jar 里取某个 cookie 的值（登录换 key 时要用 p_skey / skey）。 */
+    fun cookie(name: String): String? = store?.value(name)
 
     fun post(url: String, body: okhttp3.RequestBody, headers: Map<String, String>): okhttp3.Response {
         val b = Request.Builder().url(url).post(body).header("User-Agent", UA)

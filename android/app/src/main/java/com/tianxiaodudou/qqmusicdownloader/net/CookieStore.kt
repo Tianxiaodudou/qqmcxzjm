@@ -43,6 +43,10 @@ class CookieStore(context: Context) : CookieJar {
         cache.values.filter { it.matches(url) && it.expiresAt > System.currentTimeMillis() }
 
     @Synchronized
+    fun value(name: String): String? =
+        cache.values.firstOrNull { it.name == name && it.expiresAt > System.currentTimeMillis() }?.value
+
+    @Synchronized
     fun clear() {
         cache.clear()
         prefs.edit().remove(KEY).apply()

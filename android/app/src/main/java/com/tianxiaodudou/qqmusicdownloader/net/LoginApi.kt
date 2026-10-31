@@ -82,26 +82,35 @@ object LoginApi {
     }
 
     private fun authorize(redirect: String, nick: String): Session {
-        val query = redirect.substringAfter('?', "")
-        val ptsigx = param(query, "ptsigx") ?: throw QqError("缺少 ptsigx")
-        val uin = param(query, "uin") ?: throw QqError("缺少 uin")
-
-        val checkUrl = "https://ssl.ptlogin2.graph.qq.com/check_sig" +
-            "?uin=" + uin +
-            "&pttype=1&service=ptqrlogin&nodirect=0" +
-            "&ptsigx=" + ptsigx +
-            "&s_url=" + enc("https://graph.qq.com/oauth2.0/login_jump") +
-            "&ptlang=2052&ptredirect=100&aid=" + APPID + "&daid=383" +
-            "&j_later=0&low_login_hour=0&regmaster=0&pt_login_type=3" +
-            "&pt_aid=0&pt_aaid=16&pt_light=0&pt_3rd_aid=" + THIRD_AID
-        var pSkey = ""
+        if (redirect.isEmpty()) throw QqError("授权跳转地址为空")
+        // 1) 先直接跟随 ptuiCB 给的跳转地址：p_skey 通常就在这一跳下发，
+        //    不必再走 check_sig（那条路很容易 302 但拿不到 cookie）。
+        runCatching {
+            QqClient.getAnonymous(redirect, mapOf("Referer" to REFERER), followRedirects = true).use { }
+        }
+        var pSkey = QqClient.cookie("p_skey").orEmpty()
         var status = 0
-        QqClient.getAnonymous(checkUrl, mapOf("Referer" to REFERER)).use { resp ->
-            status = resp.code
-            for (h in resp.headers("Set-Cookie")) {
-                val i = h.indexOf("p_skey=")
-                if (i >= 0) pSkey = h.substring(i + 7).substringBefore(';')
+        if (pSkey.isEmpty()) {
+            // 2) 兜底：老路径 check_sig（同样不带任何 cookie）
+            val query = redirect.substringAfter('?', "")
+            val ptsigx = param(query, "ptsigx") ?: throw QqError("缺少 ptsigx")
+            val uin = param(query, "uin") ?: throw QqError("缺少 uin")
+            val checkUrl = "https://ssl.ptlogin2.graph.qq.com/check_sig" +
+                "?uin=" + uin +
+                "&pttype=1&service=ptqrlogin&nodirect=0" +
+                "&ptsigx=" + ptsigx +
+                "&s_url=" + enc("https://graph.qq.com/oauth2.0/login_jump") +
+                "&ptlang=2052&ptredirect=100&aid=" + APPID + "&daid=383" +
+                "&j_later=0&low_login_hour=0&regmaster=0&pt_login_type=3" +
+                "&pt_aid=0&pt_aaid=16&pt_light=0&pt_3rd_aid=" + THIRD_AID
+            QqClient.getAnonymous(checkUrl, mapOf("Referer" to REFERER)).use { resp ->
+                status = resp.code
+                for (h in resp.headers("Set-Cookie")) {
+                    val i = h.indexOf("p_skey=")
+                    if (i >= 0) pSkey = h.substring(i + 7).substringBefore(';')
+                }
             }
+            if (pSkey.isEmpty()) pSkey = QqClient.cookie("p_skey").orEmpty()
         }
         if (pSkey.isEmpty()) throw QqError("check_sig 返回 " + status + " 但没有 p_skey（授权链接可能已过期，重新扫码试试）")
 
