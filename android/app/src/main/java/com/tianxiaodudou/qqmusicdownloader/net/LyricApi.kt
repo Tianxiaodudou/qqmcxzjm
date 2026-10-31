@@ -60,15 +60,7 @@ object LyricApi {
         return if (plain.contains("<QrcInfos")) plain else null
     }
 
-    fun decryptQrc(hex: String): String? = runCatching {
-        val bytes = ByteArray(hex.length / 2) {
-            hex.substring(it * 2, it * 2 + 2).toInt(16).toByte()
-        }
-        val cipher = Cipher.getInstance("DESede/ECB/PKCS5Padding")
-        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(QRC_KEY.toByteArray(Charsets.US_ASCII), "DESede"))
-        val dec = cipher.doFinal(bytes)
-        inflate(dec).toString(Charsets.UTF_8)
-    }.getOrNull()
+    fun decryptQrc(hex: String): String? = TripleDes.qrcDecrypt(hex)
 
     private fun inflate(src: ByteArray): ByteArray {
         val inflater = Inflater()

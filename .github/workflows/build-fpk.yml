@@ -76,6 +76,10 @@ jobs:
           keytool -list -v -keystore "$RUNNER_TEMP/signing/release.p12" -storetype PKCS12 \
             -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" | grep -E "Alias name|SHA256"
 
+      - name: 单元测试（3DES 移植对拍）
+        working-directory: android
+        run: gradle --no-daemon testDebugUnitTest
+
       - name: 构建 release APK
         id: build
         continue-on-error: true
@@ -94,7 +98,7 @@ jobs:
         if: steps.build.outcome == 'failure'
         working-directory: android
         run: |
-          grep -E "^e: |error:|FAILURE:|Caused by|Execution failed|> Task .* FAILED" build.log | head -40 | while IFS= read -r line; do echo "::error::$line"; done
+          grep -E "^e: |error:|FAILURE:|Caused by|Execution failed|FAILED|AssertionError|expected:|but was:" build.log | head -40 | while IFS= read -r line; do echo "::error::$line"; done
           echo "----- build.log tail -----"
           tail -50 build.log
           exit 1
