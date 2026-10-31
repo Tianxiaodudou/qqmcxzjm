@@ -21,10 +21,14 @@ object QqClient {
     @Volatile
     var session: Session? = null
 
+    private var store: CookieStore? = null
+
     fun init(context: Context) {
         if (::http.isInitialized) return
+        val jar = CookieStore(context.applicationContext)
+        store = jar
         http = OkHttpClient.Builder()
-            .cookieJar(CookieStore(context.applicationContext))
+            .cookieJar(jar)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(25, TimeUnit.SECONDS)
             .writeTimeout(25, TimeUnit.SECONDS)
@@ -95,6 +99,27 @@ object QqClient {
             }
             return sub.optJSONObject("data") ?: JSONObject()
         }
+    }
+
+    /**
+     * 不带任何已有 cookie 的请求。ptlogin 的 check_sig 必须这样发：
+     * jar 里残留的 qrsig / uin 会让服务端 302 但不下发 p_skey。
+     * 响应里的 Set-Cookie 仍写回主 jar，供后续 oauth2 使用。
+     */
+    fun getAnonymous(url: String, headers: Map<String, String>): okhttp3.Response {
+        val jar = store
+        val client = http.newBuilder()
+            .followRedirects(false).followSslRedirects(false)
+            .cookieJar(object : okhttp3.CookieJar {
+                override fun saveFromResponse(u: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {
+                    jar?.saveFromResponse(u, cookies)
+                }
+                override fun loadForRequest(u: okhttp3.HttpUrl): List<okhttp3.Cookie> = emptyList()
+            })
+            .build()
+        val b = Request.Builder().url(url).header("User-Agent", UA)
+        for ((k, v) in headers) b.header(k, v)
+        return client.newCall(b.build()).execute()
     }
 
     fun post(url: String, body: okhttp3.RequestBody, headers: Map<String, String>): okhttp3.Response {

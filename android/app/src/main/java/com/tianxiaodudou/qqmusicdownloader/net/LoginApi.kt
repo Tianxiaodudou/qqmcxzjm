@@ -96,7 +96,7 @@ object LoginApi {
             "&pt_aid=0&pt_aaid=16&pt_light=0&pt_3rd_aid=" + THIRD_AID
         var pSkey = ""
         var status = 0
-        QqClient.get(checkUrl, mapOf("Referer" to REFERER), followRedirects = false).use { resp ->
+        QqClient.getAnonymous(checkUrl, mapOf("Referer" to REFERER)).use { resp ->
             status = resp.code
             for (h in resp.headers("Set-Cookie")) {
                 val i = h.indexOf("p_skey=")
