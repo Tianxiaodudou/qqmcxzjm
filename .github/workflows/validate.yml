@@ -1,0 +1,36 @@
+name: 校验（FPK 源码）
+
+# 发版只打 tag；需要单独验证某个分支时，用 Actions 页面的 Run workflow，或者直接开 PR。
+# 安卓客户端已迁出到 Tianxiaodudou/qqmusic-android，本仓库不再构建 APK。
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  validate:
+    name: 校验（结构 + 语法 + 后端冒烟）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 项目结构检查
+        run: python tools/ci/check_project.py
+
+      - name: 校验 tag 与 manifest 版本一致
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: python tools/ci/release_notes.py --tag "$GITHUB_REF_NAME" --check-only
+
+      - name: Python 语法检查
+        run: python -m compileall -q app/web app/qqmusic_api
+
+      - name: 安装依赖
+        run: pip install -r app/requirements.txt
+
+      - name: 后端冒烟测试
+        run: python tools/ci/smoke_test.py

@@ -4,6 +4,8 @@
 
 运行在飞牛 fnOS 上的 QQ 音乐下载器：登录后浏览推荐与私有歌单、搜索单曲/歌单，边听边看同步歌词；下载时自动选用账号可用的最高音质，把加密音频解密还原并把歌名、歌手、专辑、封面与歌词写入文件，输出可直接播放的成品到 NAS 指定目录。
 
+> 安卓客户端已独立到 **[Tianxiaodudou/qqmusic-android](https://github.com/Tianxiaodudou/qqmusic-android)**，本仓库只保留 fnOS（FPK）相关源码。
+
 > QQ 音乐接口层基于开源项目 **[L-1124/QQMusicApi](https://github.com/L-1124/QQMusicApi)**（GPL-3.0-or-later），详见下方「依赖与致谢」。
 
 - 应用名（appname）：`qqmusic-downloader`
