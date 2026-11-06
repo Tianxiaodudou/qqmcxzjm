@@ -68,8 +68,6 @@ class SettingsRequest(BaseModel):
     # 下载目录候选里要隐藏 / 恢复的目录（应用内名单，不动飞牛侧授权）
     dir_hidden_add: str | None = None
     dir_hidden_remove: str | None = None
-    # 列表里的付费内容（无可用音源）怎么处理：gray 置灰不可选 / hide 直接隐藏
-    paid_mode: str | None = None
     # 界面主题：light / dark / auto（跟随系统）
     theme: str | None = None
 
@@ -405,11 +403,6 @@ async def update_settings(payload: SettingsRequest, request: Request) -> dict[st
     if payload.dir_hidden_remove is not None:
         target = str(payload.dir_hidden_remove).strip()
         settings["dir_hidden"] = [d for d in store.clean_dir_list(settings.get("dir_hidden")) if d != target]
-    if payload.paid_mode is not None:
-        mode = str(payload.paid_mode).strip().lower()
-        if mode not in store.VALID_PAID_MODES:
-            raise errors.BadRequestError("付费内容处理方式只能是 gray / hide")
-        settings["paid_mode"] = mode
     if payload.theme is not None:
         theme = str(payload.theme).strip().lower()
         if theme not in store.VALID_THEMES:

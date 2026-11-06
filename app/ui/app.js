@@ -419,50 +419,11 @@ function switchView(view) {
 }
 
 /* ---------------- 通用渲染：歌曲列表 ---------------- */
-/* ---------------- 付费内容：付费单曲 / 未购买的付费数字专辑 ---------------- */
-/* 后端 song_summary 的 available=false 表示「需要购买后才能下载」。 */
-function isLocked(song) { return !!(song && song.available === false); }
-
-/** 付费内容处理方式：gray=置灰不可选（默认）｜hide=直接隐藏（需求里二选一，由用户设置决定） */
-function paidMode() {
-  const mode = String((state.settings || {}).paid_mode || 'gray').toLowerCase();
-  return mode === 'hide' ? 'hide' : 'gray';
-}
-
-/** 列表里真正要渲染的歌曲（hide 模式剔除付费内容）。 */
-function visibleSongs(songs) {
-  const list = Array.isArray(songs) ? songs : [];
-  return paidMode() === 'hide' ? list.filter((s) => !isLocked(s)) : list;
-}
-
-/** 可勾选 / 可下载的歌曲（付费内容一律排除）。 */
-function selectableSongs(songs) {
-  const list = Array.isArray(songs) ? songs : [];
-  return list.filter((s) => !isLocked(s));
-}
-
-/** 该歌曲在当前设置下是否「置灰不可选」。 */
-function lockedForUi(song) { return isLocked(song); }
-
+/* 不做任何「免费 / 绿钻 / 付费」预判：列表里的歌一律可勾选、可试听、可下载，
+   真拿不到音源时由后端在失败原因里说明（因账户权限无法播放或下载）。 */
 function songRowHtml(song, index, checked) {
   const tag = song.subtitle ? `<span class="tag">${esc(song.subtitle).slice(0, 8)}</span>` : '';
   const album = song.album ? ` · ${esc(song.album)}` : '';
-  if (lockedForUi(song)) {
-    return `
-    <label class="checkbox"><input type="checkbox" disabled title="付费内容，购买后才能下载" /></label>
-    <span class="idx">${index + 1}</span>
-    <div class="info">
-      <div class="name" title="${esc(song.name)}">${esc(song.name)}<span class="tag tag-lock">付费</span></div>
-      <div class="sub" title="需在 QQ音乐购买后才能下载">${esc(song.singer || '未知歌手')}${album} · 需购买后才能下载</div>
-    </div>
-    <span class="duration">${fmtDuration(song.interval)}</span>
-    <div class="ops">
-      <button class="btn btn-sm btn-ghost" data-role="queue" data-songmid="${esc(song.songmid)}" title="加入播放列表" aria-label="加入播放列表">加入</button>
-      <button class="btn btn-sm btn-ghost" data-role="detail" data-songmid="${esc(song.songmid)}" data-songid="${esc(String(song.songid || ''))}" data-song-name="${esc(song.name)}" data-song-singer="${esc(song.singer || '')}">详情</button>
-      <button class="btn btn-sm btn-ghost" disabled>试听</button>
-      <button class="btn btn-sm btn-primary" disabled>下载</button>
-    </div>`;
-  }
   return `
     <label class="checkbox"><input type="checkbox" data-role="pick" data-songmid="${esc(song.songmid)}"${checked ? ' checked' : ''} /></label>
     <span class="idx">${index + 1}</span>
@@ -480,16 +441,15 @@ function songRowHtml(song, index, checked) {
 }
 
 function renderSongList(container, songs, sel, emptyText = '暂无歌曲') {
-  const list = visibleSongs(songs);          // 付费内容「隐藏」模式在这里生效
+  const list = Array.isArray(songs) ? songs : [];
   const dir = (state.settings || {}).ui_direction;   // 预留：排序方向（当前未启用）
   void dir;
   if (!list.length) {
-    const onlyLocked = Array.isArray(songs) && songs.length > 0;
-    container.innerHTML = `<li class="empty">${esc(onlyLocked ? '付费内容已按设置隐藏' : emptyText)}</li>`;
+    container.innerHTML = `<li class="empty">${esc(emptyText)}</li>`;
     return;
   }
   container.innerHTML = list
-    .map((song, i) => `<li class="song-item${sel.has(song.songmid) ? ' selected' : ''}${lockedForUi(song) ? ' locked' : ''}" data-songmid="${esc(song.songmid)}">${songRowHtml(song, i, sel.has(song.songmid))}</li>`)
+    .map((song, i) => `<li class="song-item${sel.has(song.songmid) ? ' selected' : ''}" data-songmid="${esc(song.songmid)}">${songRowHtml(song, i, sel.has(song.songmid))}</li>`)
     .join('');
   songListRegistry.set(container, list);
   syncPlayingHighlight(container);
@@ -582,16 +542,13 @@ function bindSongListEvents(container, sel, listRef, onChange) {
 }
 
 function updateBulkBar(allBox, invertBtn, countEl, sel, songs) {
-  const shown = visibleSongs(songs);          // 与列表实际渲染的行保持一致
-  const pickable = selectableSongs(shown);    // 付费内容不可勾选
-  if (allBox) allBox.checked = pickable.length > 0 && sel.size === pickable.length;
-  if (invertBtn) invertBtn.disabled = !pickable.length;
+  const shown = Array.isArray(songs) ? songs : [];
+  if (allBox) allBox.checked = shown.length > 0 && sel.size === shown.length;
+  if (invertBtn) invertBtn.disabled = !shown.length;
   // busy 时显示的是「正在载入完整列表 x/y」，不要覆盖成计数
   if (countEl && !countEl.dataset.busy) {
-    const blocked = shown.length - pickable.length;
-    const tail = blocked > 0 ? `（${blocked} 首付费内容不可选）` : '';
     countEl.textContent = shown.length
-      ? (sel.size ? `已选 ${sel.size} / 共 ${shown.length} 首${tail}` : `共 ${shown.length} 首${tail}`)
+      ? (sel.size ? `已选 ${sel.size} / 共 ${shown.length} 首` : `共 ${shown.length} 首`)
       : '';
   }
   syncSectionHeads();
@@ -650,13 +607,13 @@ async function fetchAllPages({ fetchPage, num = ALL_PAGE_NUM, target = 0, onProg
 }
 
 function invertSelection(sel, songs) {
-  selectableSongs(visibleSongs(songs)).forEach((song) => {
+  (Array.isArray(songs) ? songs : []).forEach((song) => {
     if (sel.has(song.songmid)) sel.delete(song.songmid); else sel.add(song.songmid);
   });
 }
 
 function selectAll(sel, songs, checked) {
-  selectableSongs(visibleSongs(songs)).forEach((song) => {
+  (Array.isArray(songs) ? songs : []).forEach((song) => {
     if (checked) sel.add(song.songmid); else sel.delete(song.songmid);
   });
 }
@@ -665,12 +622,7 @@ const TASK_BATCH_MAX = 100;   // 与后端 MAX_BATCH 对齐：单次最多创建
 
 async function createTasks(songs, { silent = false, replaceId = '' } = {}) {
   const wanted = (Array.isArray(songs) ? songs : []).filter((s) => s && s.songmid);
-  const blocked = wanted.filter((s) => lockedForUi(s));
-  if (blocked.length) {
-    toast(`已跳过 ${blocked.length} 首付费内容（需在 QQ音乐购买后才能下载）`, 'warn');
-  }
   const payload = wanted
-    .filter((s) => !lockedForUi(s))
     .map((s) => ({
       songmid: s.songmid,
       songid: Number(s.songid) || 0,
@@ -1014,7 +966,7 @@ function blockBulkHtml(key) {
 function renderBlockSongs(mount, songs, key, emptyText = '暂无歌曲') {
   if (!mount) return;
   const st = extraState(key);
-  const list = visibleSongs(songs || []);
+  const list = Array.isArray(songs) ? songs : [];
   if (!list.length) {
     mount.innerHTML = `<ul class="song-list"><li class="empty">${esc(emptyText)}</li></ul>`;
     return;
@@ -1023,7 +975,7 @@ function renderBlockSongs(mount, songs, key, emptyText = '暂无歌曲') {
   ul.className = 'song-list';
   ul.dataset.block = key;
   ul.innerHTML = list
-    .map((song, i) => `<li class="song-item${st.sel.has(song.songmid) ? ' selected' : ''}${lockedForUi(song) ? ' locked' : ''}" data-songmid="${esc(song.songmid)}">${songRowHtml(song, i, st.sel.has(song.songmid))}</li>`)
+    .map((song, i) => `<li class="song-item${st.sel.has(song.songmid) ? ' selected' : ''}" data-songmid="${esc(song.songmid)}">${songRowHtml(song, i, st.sel.has(song.songmid))}</li>`)
     .join('');
   mount.innerHTML = '';
   mount.appendChild(ul);
@@ -1044,11 +996,11 @@ function syncBlockSelection(key) {
       if (box) box.checked = on;
     });
   }
-  const total = visibleSongs(st.songs || []).length;
+  const total = (st.songs || []).length;
   document.querySelectorAll(`[data-block-count="${key}"]`).forEach((el) => {
     el.textContent = st.sel.size ? `已选 ${st.sel.size} / ${total} 首` : `共 ${total} 首`;
   });
-  const visible = visibleSongs(st.songs || []);
+  const visible = st.songs || [];
   document.querySelectorAll(`[data-role="block-all"][data-block="${key}"]`).forEach((el) => {
     el.checked = visible.length > 0 && visible.every((s) => st.sel.has(s.songmid));
   });
@@ -1066,9 +1018,7 @@ function downloadBlockSelection(key) {
   const st = extraState(key);
   const picked = (st.songs || []).filter((s) => s && s.songmid && st.sel.has(s.songmid));
   if (!picked.length) { toast('请先勾选要下载的歌曲', 'warn'); return; }
-  const ok = picked.filter((s) => !lockedForUi(s));
-  if (!ok.length) { toast('选中的都是付费内容，需在 QQ音乐购买后才能下载', 'warn'); return; }
-  createTasks(ok);
+  createTasks(picked);
   st.sel.clear();
   syncBlockSelection(key);
 }
@@ -1345,9 +1295,6 @@ async function openSongDetail(song) {
       $('#song-detail-cover').innerHTML = cover ? `<img src="${esc(cover)}" alt="" />` : '';
       const preview = $('#song-detail-preview');
       const download = $('#song-detail-download');
-      const locked = lockedForUi(detail);
-      preview.disabled = locked;
-      download.disabled = locked;
       preview.onclick = () => openPlayer(detail.songmid, [detail]);
       download.onclick = () => createTasks([detail]);
       $('#song-detail-title').textContent = detail.name || '歌曲详情';
@@ -1444,14 +1391,14 @@ function onExtraHomeClick(ev) {
     return;
   }
   const bulkQueue = inPanel('[data-role="block-queue"]');
-  if (bulkQueue) { addSongsToQueue(visibleSongs(extraState(bulkQueue.dataset.block).songs || [])); return; }
+  if (bulkQueue) { addSongsToQueue(extraState(bulkQueue.dataset.block).songs || []); return; }
   const bulkDownload = inPanel('[data-role="block-download"]');
   if (bulkDownload) { downloadBlockSelection(bulkDownload.dataset.block); return; }
   const invert = inPanel('[data-role="block-invert"]');
   if (invert) {
     const key = invert.dataset.block;
     const st = extraState(key);
-    visibleSongs(st.songs || []).forEach((s) => { if (st.sel.has(s.songmid)) st.sel.delete(s.songmid); else st.sel.add(s.songmid); });
+    (st.songs || []).forEach((s) => { if (st.sel.has(s.songmid)) st.sel.delete(s.songmid); else st.sel.add(s.songmid); });
     syncBlockSelection(key);
     return;
   }
@@ -1476,7 +1423,7 @@ function onExtraHomeChange(ev) {
   if (all) {
     const key = all.dataset.block;
     const st = extraState(key);
-    if (all.checked) visibleSongs(st.songs || []).forEach((s) => st.sel.add(s.songmid));
+    if (all.checked) (st.songs || []).forEach((s) => st.sel.add(s.songmid));
     else st.sel.clear();
     syncBlockSelection(key);
   }
@@ -2978,7 +2925,7 @@ const Player = (() => {
     a.addEventListener('error', () => {
       const code = a.error ? a.error.code : '?';
       const map = { 1: '加载被中止', 2: '网络错误（文件读取失败）', 3: '解码错误（浏览器不支持该编码）', 4: '音频源不可用（文件缺失/格式不受支持）' };
-      hint('音频加载失败（错误码 ' + code + '：' + (map[code] || '未知') + '）。若当前音质无权限，可在「音质」里换成标准再试。');
+      hint('音频加载失败（错误码 ' + code + '：' + (map[code] || '未知') + '）。常见原因是账户权限不足（需要会员或购买该歌曲），可在「音质」里换成标准再试。');
     });
 
     const seek = el('pw-seek');
@@ -3268,7 +3215,7 @@ async function openPlayer(songmid, songList = [], opts = {}) {
   state.player.songmid = songmid;
   state.player.list = songList || [];
   /* 播放上下文：上一首 / 下一首 / 播放模式都基于它 */
-  const context = (Array.isArray(songList) ? songList : []).filter((s) => s && s.songmid && !isLocked(s));
+  const context = (Array.isArray(songList) ? songList : []).filter((s) => s && s.songmid);
   if (!context.length) {
     context.push({
       songmid, songid: cached.songid || 0, name: cached.name || '', singer: cached.singer || '',
@@ -3430,7 +3377,6 @@ function queueSongOf(song) {
     album_pmid: song.album_pmid || '',
     album_mid: song.album_mid || '',
     singer_mid: song.singer_mid || '',
-    available: song.available,
   };
 }
 
@@ -3511,9 +3457,9 @@ function shuffleQueue() {
   toast('已打乱并从头播放', 'success', 1600);
 }
 
-/** 加入队列：自动去重，付费内容直接跳过 */
+/** 加入队列：自动去重 */
 function addSongsToQueue(songs) {
-  const list = (Array.isArray(songs) ? songs : []).filter(function (s) { return s && s.songmid && !isLocked(s); });
+  const list = (Array.isArray(songs) ? songs : []).filter(function (s) { return s && s.songmid; });
   if (!list.length) { toast('没有可加入播放列表的歌曲', 'warn'); return 0; }
   const seen = new Set(queueItems().map(function (s) { return s.songmid; }));
   let added = 0;
@@ -3557,7 +3503,7 @@ function songForQueueButton(btn) {
   const subEl = row && row.querySelector('.sub');
   return {
     songmid: mid,
-    name: nameEl ? String(nameEl.textContent || '').replace(/\s*付费\s*$/, '').trim() : mid,
+    name: nameEl ? String(nameEl.textContent || '').trim() : mid,
     singer: subEl ? String(subEl.textContent || '').split(' · ')[0] : '',
   };
 }
@@ -3779,12 +3725,6 @@ function bindQueueControls() {
   document.addEventListener('click', function (ev) {
     const btn = ev.target.closest('[data-role="queue"]');
     if (!btn || btn.disabled) return;
-    if (btn.closest('.song-item.locked')) {
-      ev.preventDefault();
-      ev.stopPropagation();
-      toast('付费内容需在 QQ音乐购买后才能加入播放列表', 'warn');
-      return;
-    }
     ev.preventDefault();
     ev.stopPropagation();
     addSongsToQueue([songForQueueButton(btn)]);
@@ -4343,8 +4283,6 @@ function applySettings() {
   $('#setting-meta-json').checked = !!s.meta_json;
   const themeSel = $('#setting-theme');
   if (themeSel) themeSel.value = ['light', 'dark', 'auto'].indexOf(s.theme) >= 0 ? s.theme : 'auto';
-  const paidSel = $('#setting-paid-mode');
-  if (paidSel) paidSel.value = paidMode();
   fillPushBatchInputs(s);
   applyTheme();
   renderDirOptions();
@@ -4478,9 +4416,8 @@ async function saveSettings() {
     }
     payload[item.key] = Math.round(value);
   }
-  // 界面：主题 + 付费内容处理方式（整页一次提交）
+  // 界面：主题（整页一次提交）
   payload.theme = ($('#setting-theme') || {}).value || 'auto';
-  payload.paid_mode = ($('#setting-paid-mode') || {}).value || 'gray';
   // 首页四块推荐的数量上限：1 ~ 上限（下限交给 QQ 服务器：拿不到就少显示）
   const homeFields = [
     ['#setting-home-songlists', 'home_songlists_max', 1, 60, '推荐歌单'],
@@ -4721,7 +4658,7 @@ function bindBulkControls({ container, songs, sel, allSel, invertBtn, downloadBt
   if (queueBtn) {
     queueBtn.addEventListener('click', async () => {
       if (!(await ensureWholeList())) return;
-      addSongsToQueue(visibleSongs(songs()));
+      addSongsToQueue(songs());
     });
   }
 }
@@ -4782,7 +4719,7 @@ function bindEvents() {
     if (ev.target.closest('button, a, input, label')) return;
     const item = info.closest('.song-item');
     const mid = item && item.dataset.songmid;
-    if (!mid || item.classList.contains('locked')) return;
+    if (!mid) return;
     openPlayer(mid, []);
   });
   on('#m-open-history', 'click', () => switchView('history'));

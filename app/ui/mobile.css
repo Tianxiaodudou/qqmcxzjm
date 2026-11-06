@@ -624,7 +624,6 @@
 
   /* 歌曲行里的「加入播放列表」图标 */
   .song-item .ops [data-role="queue"]::before { content: "＋"; font-size: 18px; }
-  .song-item.locked .ops [data-role="queue"] { opacity: .35; }
 
   /* 播放器头部：标题可截断，模式 / 队列 / 关闭按钮不被挤压 */
   #modal-player .modal-head h3 { flex: 1; min-width: 0; margin-right: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

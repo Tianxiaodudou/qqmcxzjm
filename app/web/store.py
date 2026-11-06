@@ -107,7 +107,6 @@ def is_logged_in() -> bool:
 # --------------------------------------------------------------------------
 # 设置
 # --------------------------------------------------------------------------
-VALID_PAID_MODES = ("gray", "hide")
 VALID_THEMES = ("light", "dark", "auto")
 # 推送消息类型：纯文本 / Markdown / HTML
 VALID_PUSH_TYPES = ("text", "markdown", "html")
@@ -178,8 +177,6 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "download_dir": env.WIZARD_MEDIA_DIR or str(env.DATA_DIR / "downloads"),
     # 下载目录候选里被用户「移除」的目录（应用内隐藏名单；不动飞牛侧的授权记录）
     "dir_hidden": [],
-    # 列表里的付费内容（无可用音源）怎么显示：gray=置灰且不可选中，hide=直接隐藏
-    "paid_mode": "gray",
     # 界面主题：light / dark / auto（跟随系统）
     "theme": "auto",
     # 推送消息类型：text / markdown / html
@@ -235,9 +232,6 @@ def load_settings() -> dict[str, Any]:
             merged.update({k: v for k, v in data.items() if k in DEFAULT_SETTINGS})
         if not merged.get("download_dir"):
             merged["download_dir"] = DEFAULT_SETTINGS["download_dir"]
-        # 旧版本允许的 paid_mode=off 已取消（需求为「置灰 / 隐藏」二选一），历史配置归一为默认值
-        if merged.get("paid_mode") not in VALID_PAID_MODES:
-            merged["paid_mode"] = DEFAULT_SETTINGS["paid_mode"]
         if merged.get("theme") not in VALID_THEMES:
             merged["theme"] = DEFAULT_SETTINGS["theme"]
         # 各板块上限：非数字或越界一律钳到 1~100，避免前端拿着脏值去请求

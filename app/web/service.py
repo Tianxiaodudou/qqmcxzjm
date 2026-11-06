@@ -474,9 +474,7 @@ class QQService(BlocksMixin):
             "media_mid": str(self._field(file_info, "media_mid")),
             "song_type": self._to_int(self._field(song, "type", default=1), 1),
             "sizes": sizes,
-            # 列表里就能判断"这首能不能下"：QQ 对未购买的付费数字专辑/已下架曲目
-            # 会把各音质 size 全部置 0（详情接口也只回空壳），前端据此置灰或隐藏。
-            "available": bool(sizes),
+            # 列表不再预判「能不能下」：一律可点，真拿不到音源时由下载流程给出失败原因。
             "pay": pay,
         }
 
@@ -1022,7 +1020,7 @@ class QQService(BlocksMixin):
         purl = str(getattr(item, "purl", "") or "")
         result = self._to_int(getattr(item, "result", -1), -1)
         if result != 0 or not purl:
-            raise errors.AppError("该音质不可用（可能受版权或会员限制）", code="no_permission")
+            raise errors.AppError("因账户权限无法播放（该音质需要会员或购买该歌曲）", code="no_permission")
         host = await self.cdn_host()
         filename = str(getattr(item, "filename", "") or "")
         ekey = str(getattr(item, "ekey", "") or "")

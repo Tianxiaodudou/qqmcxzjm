@@ -1092,15 +1092,6 @@ html[data-theme="light"] .sidebar { border-right-color: var(--border); }
   #view-settings .field > * { grid-column: 1 / -1; }
 }
 
-/* ==========================================================
-   付费内容：置灰不可选 / 付费标签
-   ========================================================== */
-.song-item.locked { opacity: .5; }
-.song-item.locked .idx,
-.song-item.locked .name { color: var(--text-mute); }
-.tag-lock { background: rgba(242, 85, 90, .16); color: var(--danger); }
-
-
 /* ---------------- 首页新增板块（信息流 / 榜单 / 新碟 / 歌手 / 热搜 / 每日 30 首） ---------------- */
 .block-mount { display: flex; flex-direction: column; gap: 12px; }
 
